@@ -1,0 +1,1 @@
+"""Calcul des pronostics."""
