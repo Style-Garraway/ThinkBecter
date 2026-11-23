@@ -1,0 +1,6 @@
+# Données personnelles et locales : base (contient les clés API), fichiers téléchargés, journal, profil du navigateur
+data/
+# Composants installés par Lancer_Agent.bat
+.venv/
+__pycache__/
+*.pyc

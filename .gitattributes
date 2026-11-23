@@ -1,0 +1,2 @@
+# Le lanceur garde ses fins de ligne Windows (CRLF) telles quelles : en LF, ses « goto » peuvent échouer.
+*.bat -text
