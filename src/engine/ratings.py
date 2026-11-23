@@ -13,6 +13,9 @@ from .dixon_coles import RHO, outcome_probs, score_matrices
 
 # Valeurs choisies par le test sur le passé (python -m src.backtest.run) ; ne pas les changer sans le refaire.
 K = 0.3       # part de la nouvelle information après chaque match
+K_EARLY, N_EARLY = 0.5, 4  # apprentissage plus rapide sur les 4 premiers matchs de chaque saison (effectifs changés)
+K_HOME = 0.05  # vitesse d'apprentissage de l'avantage du terrain propre à chaque club
+SPREAD = 1.12  # écart entre les deux équipes amplifié (le lissage rend les notes trop prudentes) ; total de buts inchangé
 K_MU = 0.01   # idem pour les moyennes de buts de la ligue
 PROMO = 1.15  # un promu démarre avec une attaque à 1/1,15 et une défense à 1,15 (1 = équipe moyenne)
 START_MU = (1.5, 1.2)  # buts moyens domicile / extérieur avant d'avoir vu des matchs
@@ -68,11 +71,11 @@ def add_market_goals(matches):
 
 
 def new_state():
-    return {"teams": {}, "mu": {}, "members": {}}
+    return {"teams": {}, "mu": {}, "members": {}, "home": {}}
 
 
 def _team(state, league, season, name):
-    """Notes de l'équipe : a = attaque, d = défense (plus grand = encaisse plus), n = matchs vus.
+    """Notes de l'équipe : a = attaque, d = défense (plus grand = encaisse plus), n = matchs vus, ns = vus cette saison.
     À sa première apparition dans une saison, un promu (absent la saison d'avant) repart sous la moyenne."""
     key, members = (league, name), state["members"]
     cur = members.setdefault((league, season), set())
@@ -80,15 +83,26 @@ def _team(state, league, season, name):
         cur.add(name)
         prev = members.get((league, season - 1))
         if prev and name not in prev:
-            state["teams"][key] = {"a": 1 / PROMO, "d": PROMO, "n": 0}
-    return state["teams"].setdefault(key, {"a": 1.0, "d": 1.0, "n": 0})
+            state["teams"][key] = {"a": 1 / PROMO, "d": PROMO, "n": 0, "ns": 0}
+        elif key in state["teams"]:
+            state["teams"][key]["ns"] = 0
+    return state["teams"].setdefault(key, {"a": 1.0, "d": 1.0, "n": 0, "ns": 0})
+
+
+def _raw(state, league, season, home, away):
+    """Buts attendus bruts, sans l'avantage du terrain propre au club ni l'amplification de l'écart."""
+    th, ta = _team(state, league, season, home), _team(state, league, season, away)
+    mu = state["mu"].setdefault(league, list(START_MU))
+    return mu[0] * th["a"] * ta["d"], mu[1] * ta["a"] * th["d"], min(th["n"], ta["n"])
 
 
 def predict(state, league, season, home, away):
     """Buts attendus (domicile, extérieur) d'un match, et nombre de matchs déjà vus par l'équipe la moins connue."""
-    th, ta = _team(state, league, season, home), _team(state, league, season, away)
-    mu = state["mu"].setdefault(league, list(START_MU))
-    return mu[0] * th["a"] * ta["d"], mu[1] * ta["a"] * th["d"], min(th["n"], ta["n"])
+    lh, la, seen = _raw(state, league, season, home, away)
+    g = float(np.exp(state["home"].get((league, home), 0.0)))
+    lh, la = lh * g, la / g
+    total, share = lh + la, 1 / (1 + (la / lh) ** SPREAD)
+    return total * share, total * (1 - share), seen
 
 
 def relative(state, league, season, name):
@@ -106,18 +120,26 @@ def update(state, m):
     """Après un match joué : chaque note se rapproche de ce que le marché en attendait, compte tenu de l'adversaire."""
     if not m.get("mkt"):
         return
+    (oh, oa), clip = m["mkt"], lambda x: min(max(x, 0.0), 4.0)
+    # Avantage du terrain du club : part de l'écart au marché que les notes générales n'expliquent pas.
+    h0, a0, _ = _raw(state, m["league"], m["season"], m["home"], m["away"])
+    key = (m["league"], m["home"])
+    resid = 0.5 * (np.log(oh / h0) - np.log(oa / a0))
+    state["home"][key] = state["home"].get(key, 0.0) + K_HOME * (resid - state["home"].get(key, 0.0))
     th, ta = _team(state, m["league"], m["season"], m["home"]), _team(state, m["league"], m["season"], m["away"])
     mu = state["mu"].setdefault(m["league"], list(START_MU))
-    (oh, oa), clip = m["mkt"], lambda x: min(max(x, 0.0), 4.0)
+    kh = K_EARLY if th["ns"] < N_EARLY else K
+    ka = K_EARLY if ta["ns"] < N_EARLY else K
     ah, dh, aa, da = th["a"], th["d"], ta["a"], ta["d"]
-    th["a"] = ah + K * (clip(oh / (mu[0] * da)) - ah)
-    ta["d"] = da + K * (clip(oh / (mu[0] * ah)) - da)
-    ta["a"] = aa + K * (clip(oa / (mu[1] * dh)) - aa)
-    th["d"] = dh + K * (clip(oa / (mu[1] * aa)) - dh)
+    th["a"] = ah + kh * (clip(oh / (mu[0] * da)) - ah)
+    ta["d"] = da + ka * (clip(oh / (mu[0] * ah)) - da)
+    ta["a"] = aa + ka * (clip(oa / (mu[1] * dh)) - aa)
+    th["d"] = dh + kh * (clip(oa / (mu[1] * aa)) - dh)
     mu[0] += K_MU * (oh - mu[0])
     mu[1] += K_MU * (oa - mu[1])
-    th["n"] += 1
-    ta["n"] += 1
+    for t in (th, ta):
+        t["n"] += 1
+        t["ns"] += 1
 
 
 def walk(matches, lag_days=0.0):
