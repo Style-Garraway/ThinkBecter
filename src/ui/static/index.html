@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ThinkBecter</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<style>
+  :root { --bg: #0b0f14; --panel: #121821; --line: #222c3a; --text: #e2e8f0; --muted: #7d8a9c; --green: #22e07a; --red: #f04b4b; --accent: #f5a524; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 16px 24px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 0; display: flex; align-items: center; gap: 10px; }
+  .brand b { color: var(--green); font-weight: inherit; }
+  #splash { position: fixed; inset: 0; z-index: 10; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; transition: opacity .5s ease; }
+  #splash.done { opacity: 0; pointer-events: none; }
+  #splash img { animation: pop .7s cubic-bezier(.2, .9, .3, 1.2) both; filter: drop-shadow(0 0 28px rgba(34, 224, 122, .3)); }
+  #splash .brand { font-size: 44px; font-weight: 700; letter-spacing: .3px; animation: rise .6s .25s ease-out both; }
+  #splash small { font-size: 18px; color: var(--text); animation: rise .6s .5s ease-out both; }
+  @keyframes pop { from { opacity: 0; transform: scale(.6); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+  @media (prefers-reduced-motion: reduce) { #splash, #splash * { animation: none !important; transition: none; } }
+  .spacer { flex: 1; }
+  #fresh { color: var(--muted); font-size: 12px; }
+  button { white-space: nowrap; font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 7px 14px; }
+  button:hover { border-color: var(--muted); }
+  button:disabled { opacity: .5; cursor: wait; }
+  button.primary { background: var(--green); color: #04210f; border: 0; font-weight: 600; }
+  .banner { margin: 14px 24px 0; padding: 10px 14px; border: 1px solid var(--accent); border-radius: 8px; color: var(--accent); }
+  .settings { margin: 14px 24px 0; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; display: none; gap: 14px; align-items: end; flex-wrap: wrap; }
+  .settings.open { display: flex; }
+  .settings label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; max-width: 330px; }
+  .settings label b { color: var(--text); font-weight: 600; }
+  .settings input { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: inherit; }
+  .settings p { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 12px; }
+  main { padding: 14px 24px 32px; }
+  .filters { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .filters select, .filters input { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; font: inherit; }
+  .filters input { width: 220px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 12px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr.day td { background: var(--panel); color: var(--accent); font-weight: 600; padding: 8px 10px; }
+  tr.day td::first-letter { text-transform: uppercase; }
+  table.no-odds .odds { display: none; }
+  .teams b { display: block; }
+  small { color: var(--muted); }
+  .teams small.out { display: block; color: var(--red); }
+  .num { font-family: "Cascadia Mono", Consolas, monospace; white-space: nowrap; }
+  .trio span { display: inline-block; min-width: 64px; } .trio i { font-style: normal; color: var(--muted); margin-right: 4px; }
+  .yes { color: var(--green); font-weight: 600; }
+  .empty { text-align: center; color: var(--muted); padding: 48px; }
+  .note { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+  #toast { position: fixed; right: 20px; bottom: 20px; max-width: 70%; background: var(--panel); border: 1px solid var(--green); padding: 10px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; } #toast.err { border-color: var(--red); }
+</style>
+</head>
+<body>
+<div id="splash" aria-hidden="true">
+  <img src="/logo.svg" alt="" width="140" height="140">
+  <div class="brand">Think<b>Becter</b></div>
+  <small>Pronostics football calculés, pas devinés</small>
+</div>
+<header>
+  <h1><img src="/logo.svg" alt="" width="30" height="30"><span class="brand">Think<b>Becter</b></span></h1>
+  <span id="fresh"></span>
+  <span class="spacer"></span>
+  <button id="refresh" class="primary">Actualiser</button>
+  <button id="gear" title="Clés facultatives" aria-label="Clés facultatives">⚙</button>
+</header>
+<form id="settings" class="settings">
+  <label><b>Clé The Odds API <span id="k-odds_api_key"></span></b>Facultatif. Ajoute les cotes Betclic et les coupes d'Europe.
+    <input name="odds_api_key" type="password" autocomplete="off" placeholder="clé gratuite de the-odds-api.com"></label>
+  <label><b>Clé API-Football <span id="k-apifootball_key"></span></b>Facultatif. Affiche les joueurs forfaits des matchs d'aujourd'hui et de demain.
+    <input name="apifootball_key" type="password" autocomplete="off" placeholder="clé gratuite de api-football.com"></label>
+  <button class="primary">Enregistrer</button>
+  <p>L'appli fonctionne sans aucune clé pour les 5 grands championnats. Les clés restent sur ce PC. Le guide (fichier README) explique comment les obtenir.</p>
+</form>
+<div id="warn" class="banner" hidden></div>
+<main>
+  <div class="filters">
+    <select id="f-comp" aria-label="Compétition"><option value="">Toutes les compétitions</option></select>
+    <input id="f-club" type="search" placeholder="Chercher un club…" autocomplete="off" aria-label="Chercher un club">
+    <small id="count"></small>
+  </div>
+  <table id="table">
+    <thead><tr><th>Match</th><th>Pronostic de l'agent</th><th>Chances 1 / N / 2</th><th class="odds">Cote Betclic</th><th>Pari le plus probable de l'agent</th><th></th></tr></thead>
+    <tbody id="rows"><tr><td colspan="6" class="empty">Chargement…</td></tr></tbody>
+  </table>
+  <p class="note" id="note"></p>
+  <p class="note" id="track"></p>
+  <p class="note">Mesuré sur 1 752 matchs de la saison 2025-26 : cet agent est presque aussi précis que les cotes de clôture des bookmakers (erreur 0,980 contre 0,977 ; hasard 1,072), mais pas meilleur. Ses chances sont un avis statistique, pas une promesse de gain : sur la durée, parier fait perdre la marge du bookmaker. Jeu réservé aux adultes. Besoin d'aide : Joueurs Info Service, 09 74 75 13 13.</p>
+</main>
+<div id="toast"></div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pct = (x) => Math.round(x * 100) + " %";
+const odd = (x) => x.toFixed(2).replace(".", ",");
+const plain = (x) => x.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const day = (iso, opts) => new Date(iso.length === 10 ? iso + "T12:00" : iso).toLocaleDateString("fr-FR", opts);
+let all = [];
+
+function toast(msg, err = false) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.className = "show" + (err ? " err" : "");
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => (t.className = ""), 4000);
+}
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts.body ? { ...opts, body: JSON.stringify(opts.body), headers: { "Content-Type": "application/json" } } : opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(data.detail || "Erreur", true); throw new Error(data.detail); }
+  return data;
+}
+
+function show(d) {
+  all = d.matches;
+  const s = d.status;
+  $("#fresh").textContent = s.refreshed_at
+    ? `Résultats connus jusqu'au ${day(s.data_until, { day: "numeric", month: "long" })} · actualisé le ${day(s.refreshed_at, { day: "numeric", month: "long" })} à ${s.refreshed_at.slice(11)}` : "";
+  const old = s.refreshed_at && Date.now() - new Date(s.refreshed_at) > 24 * 3600 * 1000;
+  const warns = [...(s.warnings || []), ...(old ? ["Dernière actualisation il y a plus de 24 heures : clique sur « Actualiser »."] : [])];
+  $("#warn").hidden = !warns.length;
+  $("#warn").textContent = warns.join(" ");
+  $("#table").classList.toggle("no-odds", !all.some((m) => m.odds.H));
+  for (const [k, on] of Object.entries(d.keys)) $("#k-" + k).textContent = on ? "(enregistrée)" : "";
+  const cur = $("#f-comp").value;
+  $("#f-comp").innerHTML = '<option value="">Toutes les compétitions</option>' +
+    [...new Set(all.map((m) => m.competition))].sort().map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("");
+  render();
+}
+
+function render() {
+  const comp = $("#f-comp").value, club = plain($("#f-club").value.trim());
+  const list = all.filter((m) => (!comp || m.competition === comp) && (!club || plain(m.home + " " + m.away).includes(club)));
+  $("#count").textContent = list.length === all.length ? `${all.length} matchs` : `${list.length} / ${all.length} matchs`;
+  if (!list.length) {
+    $("#rows").innerHTML = `<tr><td colspan="6" class="empty">${all.length ? "Aucun match pour ce filtre." : "Aucun match à venir pour le moment. Clique sur « Actualiser »."}</td></tr>`;
+    $("#note").textContent = "";
+    return;
+  }
+  let last = "", html = "";
+  for (const m of list) {
+    const d0 = m.kickoff.slice(0, 10);
+    if (d0 !== last) {
+      last = d0;
+      html += `<tr class="day"><td colspan="6">${day(d0, { weekday: "long", day: "numeric", month: "long" })}</td></tr>`;
+    }
+    const o = m.odds, t = m.top, out = [...m.absent.home, ...m.absent.away];
+    html += `<tr>
+      <td class="teams"><b>${esc(m.home)} – ${esc(m.away)}${m.estimated ? " *" : ""}</b><small>${m.kickoff.slice(11)} · ${esc(m.competition)}</small>${
+        out.length ? `<small class="out">Forfaits : ${esc(out.slice(0, 6).join(", "))}${out.length > 6 ? ` (+${out.length - 6})` : ""}</small>` : ""}</td>
+      <td><b>${esc(m.pick.label)}</b><br><small>${pct(m.pick.p)} · cote juste ${odd(m.pick.fair_odds)}</small></td>
+      <td class="num trio"><span><i>1</i>${pct(m.probs.H)}</span><span><i>N</i>${pct(m.probs.D)}</span><span><i>2</i>${pct(m.probs.A)}</span></td>
+      <td class="num trio odds">${o.H ? `<span><i>1</i>${odd(o.H)}</span><span><i>N</i>${odd(o.D)}</span><span><i>2</i>${odd(o.A)}</span>` : "—"}</td>
+      <td><span class="yes">${esc(t.label)}</span><br><small>${pct(t.p)} de chances · cote juste ${odd(t.fair_odds)}</small></td>
+      <td><button data-copy="${m.id}">Copier</button></td>
+    </tr>`;
+  }
+  $("#rows").innerHTML = html;
+  $("#note").textContent = list.some((m) => m.estimated)
+    ? "* Estimation grossière : coupe d'Europe (pas de test possible sur le passé) ou club promu encore peu connu." : "";
+}
+
+async function loadTrack() {
+  const t = await api("/api/track"), f = (x) => x.toFixed(3).replace(".", ",");
+  $("#track").textContent = !t.n
+    ? (t.pending ? `Journal de preuve : ${t.pending} matchs de championnat pronostiqués à l'avance, en attente des résultats.` : "")
+    : `Journal de preuve, ${t.n} matchs de championnat joués (${t.pending} en attente) : erreur de l'agent ${f(t.model)} contre ${f(t.naive)} pour le hasard` +
+      (t.with_market ? ` ; sur les ${t.with_market} matchs avec cote Betclic relevée, agent ${f(t.model_same)} et Betclic ${f(t.market)}` : "") +
+      ` (plus bas = mieux). Bon pronostic 1N2 : ${pct(t.pick_hit)}. Pari le plus probable réussi : ${pct(t.top_hit)} (annoncé en moyenne : ${pct(t.top_claimed)}).`;
+}
+
+async function refresh(first = false) {
+  const b = $("#refresh");
+  b.disabled = true;
+  b.textContent = first ? "Premier chargement…" : "Actualisation…";
+  if (first) $("#rows").innerHTML = `<tr><td colspan="6" class="empty">Premier lancement : téléchargement des résultats et des cotes passées (moins d'une minute)…</td></tr>`;
+  try {
+    const d = await api("/api/refresh", { method: "POST" });
+    show(d);
+    const s = d.status;
+    toast(`${d.matches.length} matchs à venir` + (s.settled ? ` · ${s.settled} résultats enregistrés` : "") + (s.credits ? ` · ${s.credits} crédits The Odds API restants` : ""));
+    loadTrack();
+  } catch {
+    if (first) $("#rows").innerHTML = `<tr><td colspan="6" class="empty">Impossible de télécharger les données. Vérifie ta connexion internet, puis clique sur « Actualiser ».</td></tr>`;
+  } finally { b.disabled = false; b.textContent = "Actualiser"; }
+}
+
+$("#f-comp").addEventListener("change", render);
+$("#f-club").addEventListener("input", render);
+$("#refresh").addEventListener("click", () => refresh());
+$("#gear").addEventListener("click", () => $("#settings").classList.toggle("open"));
+
+$("#rows").addEventListener("click", async (e) => {
+  const id = e.target.dataset.copy;
+  if (id === undefined) return;
+  // Copie faite par Python dans le presse-papiers Windows : la fenêtre peut bloquer la copie faite par la page.
+  const r = await api(`/api/copy/${id}`, { method: "POST" });
+  toast("Copié : " + r.text);
+});
+
+$("#settings").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target, body = {};
+  for (const k of ["odds_api_key", "apifootball_key"]) if (f[k].value.trim()) body[k] = f[k].value.trim();
+  if (!Object.keys(body).length) return toast("Colle une clé avant d'enregistrer.", true);
+  await api("/api/settings", { method: "PUT", body });
+  f.reset();
+  f.classList.remove("open");
+  toast("Clé enregistrée. Actualisation…");
+  refresh();
+});
+
+const opened = Date.now();
+(async () => {
+  try {
+    const d = await api("/api/today");
+    show(d);
+    if (!d.ready || !d.status.refreshed_at) refresh(true);  // tout premier lancement : rien à afficher sans données
+    else loadTrack();
+  } finally {  // l'écran d'ouverture reste au moins 3 s, le temps de le lire, puis s'efface
+    setTimeout(() => $("#splash").classList.add("done"), Math.max(0, 3000 - (Date.now() - opened)));
+  }
+})();
+</script>
+</body>
+</html>
