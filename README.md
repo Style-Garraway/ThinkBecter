@@ -8,8 +8,8 @@ Un agent de pronostics football pour Windows. Il estime les chances de chaque ma
 ![L'écran de l'appli](docs/ecran.png)
 
 > **À lire avant de t'en servir.** Cet agent donne un avis statistique, pas un moyen de gagner de l'argent.
-> Mesuré sur 1 752 matchs, il est presque aussi précis que les cotes des bookmakers, mais pas meilleur
-> (les chiffres sont plus bas). Sur la durée, parier fait perdre la marge du bookmaker.
+> Mesuré sur 2 297 matchs jamais utilisés pour le régler, il est au niveau des cotes des bookmakers
+> (les chiffres sont plus bas), sans avantage prouvé. Sur la durée, parier fait perdre la marge du bookmaker.
 > Jeu réservé aux adultes. Besoin d'aide : Joueurs Info Service, 09 74 75 13 13 (appel non surtaxé).
 
 ## Installation (5 minutes)
@@ -78,8 +78,11 @@ Tes clés sont enregistrées sur ton PC, dans le dossier `data` de l'appli. Elle
 1. Pour chaque match déjà joué, il déduit des **cotes de clôture** (les dernières cotes avant le coup d'envoi) le nombre
    de buts que le marché attendait de chaque équipe.
 2. Il en tire, pour chaque équipe, une **note d'attaque** et une **note de défense**, mises à jour après chaque match.
-   Le match le plus récent compte le plus, et la force de l'adversaire est prise en compte.
-3. Pour un match à venir, il combine ces notes pour obtenir les **buts attendus** de chaque équipe.
+   Le match le plus récent compte le plus, et la force de l'adversaire est prise en compte. En début de saison, les
+   notes apprennent plus vite (4 premiers matchs), car les effectifs ont changé.
+3. Pour un match à venir, il combine ces notes avec l'**avantage du terrain propre à chaque club** pour obtenir les
+   **buts attendus** de chaque équipe, puis il corrige la prudence du lissage en accentuant un peu l'écart entre les
+   deux équipes (le total de buts attendus ne change pas).
 4. Un modèle statistique (**Dixon-Coles**) donne la probabilité de chaque score, puis le match est **simulé 10 000 fois**.
 5. Les chances affichées sont comptées sur ces simulations.
 
@@ -88,18 +91,21 @@ L'agent n'utilise jamais les cotes du match qu'il pronostique : seulement ce qui
 ## Ce que valent ses pronostics (mesuré)
 
 Test refait sur le passé : pour chaque match, l'agent ne connaît que les matchs joués au moins 3 jours plus tôt.
+Ses réglages ont été choisis sur les saisons 2022-23 à 2024-25 ; les saisons ci-dessous n'ont jamais servi à les choisir.
 L'**erreur** ci-dessous est une note où plus bas = mieux (répondre au hasard donne environ 1,07).
 
 | Saison | Matchs | Hasard | **Agent** | Cotes de clôture des bookmakers |
 |---|---|---|---|---|
-| 2025-26 | 1 752 | 1,072 | **0,980** | 0,977 |
-| 2026-27 (au 22/11/2026) | 545 | 1,061 | **0,946** | 0,948 |
+| 2025-26 | 1 752 | 1,072 | **0,979** | 0,977 |
+| 2026-27 (au 22/11/2026) | 545 | 1,061 | **0,940** | 0,948 |
 
-- **Bon pronostic 1N2** en 2025-26 : 53,2 % pour l'agent, 53,5 % pour les bookmakers.
-- **Chances fiables** : sur 7 627 matchs, quand l'agent annonce 70 à 80 %, le pari passe 76 % du temps ;
-  entre 50 et 60 %, il passe 55 % du temps. Le « pari le plus probable » passe 80,6 % du temps (annoncé : 80,0 %).
-- **Mais pas d'avantage sur les bookmakers** : parier chaque fois que l'agent croyait voir 5 % d'avantage sur la cote
-  aurait fait perdre 8,3 % des mises en 2025-26 (622 paris). Un pari très probable a aussi une cote très basse.
+- **Bon pronostic 1N2** sur ces 2 297 matchs : 54,4 % pour l'agent, 54,1 % pour les bookmakers.
+  Sur les 7 627 matchs depuis 2022 : 53,8 % pour l'agent, 54,6 % pour les bookmakers.
+- **Chances fiables** : quand l'agent annonce 70 à 80 %, le pari passe 76 % du temps ; entre 50 et 60 %, il passe
+  55 % du temps. Le « pari le plus probable » passe 80,7 % du temps (annoncé : 80,0 %).
+- **Pas d'avantage prouvé sur les bookmakers** : parier chaque fois que l'agent croyait voir 5 % d'avantage sur la cote
+  de clôture aurait donné +2,4 % en 2025-26 (592 paris), avec une marge d'erreur de ±6,5 % : ce résultat peut être
+  dû au hasard. Et la cote de clôture n'est pas celle que tu obtiens en pariant plus tôt sur Betclic.
 
 Tu peux refaire ce test toi-même (il télécharge six saisons de données, environ 30 secondes) :
 

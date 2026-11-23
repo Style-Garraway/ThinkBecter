@@ -41,7 +41,7 @@ ThinkBecter/
 │   ├── api/server.py           /api/today, /api/refresh, /api/copy, /api/track, /api/settings ; filtre Host/Origin
 │   ├── api/clipboard.py        copie dans le presse-papiers par l'API Win32
 │   └── ui/static/              index.html (l'unique écran), logo.svg (logo, écran d'ouverture), logo.ico (icône de fenêtre)
-└── tests/test_engine.py        16 tests, sources remplacées par de faux mini-championnats
+└── tests/test_engine.py        18 tests, sources remplacées par de faux mini-championnats
 ```
 
 ## Le modèle (ne pas le modifier sans refaire `python -m src.backtest.run`)
@@ -51,22 +51,33 @@ ThinkBecter/
    le partage de l'écart P(1) − P(2) (dichotomie sur la matrice Dixon-Coles).
 2. Notes par équipe et par ligue, `a` (attaque) et `d` (défense, plus grand = encaisse plus), lissage exponentiel K = 0,3 :
    `a_dom += K·(λ_dom / (μ_dom·d_ext) − a_dom)`, de même pour les trois autres. Moyennes de ligue μ : K_MU = 0,01.
-   Promu (absent la saison d'avant) : a = 1/1,15, d = 1,15.
-3. Match à venir : `λ_dom = μ_dom·a_dom·d_ext`, `λ_ext = μ_ext·a_ext·d_dom` ; Dixon-Coles ρ = −0,08 ; 10 000 simulations
-   (graine = clubs + date : mêmes chiffres chez tout le monde).
-4. Aucune cote du match pronostiqué n'entre dans le calcul. Historique chargé : saison en cours + précédente
+   Promu (absent la saison d'avant) : a = 1/1,15, d = 1,15. Sur les 4 premiers matchs de chaque saison d'une équipe
+   (`ns` < N_EARLY = 4), K_EARLY = 0,5 au lieu de K.
+3. Avantage du terrain par club `h` (log), appris AVANT la mise à jour des notes : `h += 0,05·(½·[ln(λ_dom/λ̂_dom) − ln(λ_ext/λ̂_ext)] − h)`.
+4. Match à venir : `λ_dom = μ_dom·a_dom·d_ext·e^h`, `λ_ext = μ_ext·a_ext·d_dom/e^h`, puis écart amplifié
+   (SPREAD = 1,12) : rapport λ_dom/λ_ext élevé à la puissance 1,12, total λ_dom + λ_ext inchangé (+/- buts inchangés).
+   Dixon-Coles ρ = −0,08 ; 10 000 simulations (graine = clubs + date : mêmes chiffres chez tout le monde).
+5. Aucune cote du match pronostiqué n'entre dans le calcul. Historique chargé : saison en cours + précédente
    (écart < 0,6 % sur les λ par rapport à cinq saisons).
 
 ### Mesures (23/11/2026, délai de 3 jours simulé, log-loss 1N2, plus bas = mieux)
 
+Protocole : K_EARLY, K_HOME et SPREAD choisis sur 2022-23 à 2024-25 (5 330 matchs) ; 2025-26 et 2026-27 jamais
+utilisés pour choisir. Gain mesuré sur ce test : +0,0021 de log-loss 1N2 (± 0,0011), positif sur les deux saisons.
+
 | | hasard | agent | marché (clôture) |
 |---|---|---|---|
-| 2025-26, 1 752 matchs | 1,072 | **0,980** | 0,977 |
-| 2026-27, 545 matchs | 1,061 | **0,946** | 0,948 |
+| 2025-26, 1 752 matchs | 1,072 | **0,979** (avant : 0,980) | 0,977 |
+| 2026-27, 545 matchs | 1,061 | **0,940** (avant : 0,946) | 0,948 |
 
-Plus/moins de 2,5 buts 2025-26 : 0,692 / 0,677 / 0,673. Fiabilité : annoncé 70-80 % -> arrivé 76,0 % (7 627 matchs).
-Pari le plus probable : réussi 80,6 % (annoncé 80,0 %). **Aucun avantage sur le marché** : parier quand l'agent voit
-+5 % donne −8,3 % (622 paris, 2025-26). Ne jamais présenter l'appli comme un moyen de gagner.
+Bon pronostic 1N2 sur le test : 54,4 % contre 54,1 % (marché) ; sur 7 627 matchs depuis 2022 : 53,8 % contre 54,6 %.
+Plus/moins de 2,5 buts 2025-26 : 0,692 / 0,676 / 0,673. Fiabilité : annoncé 70-80 % -> arrivé 76,0 %.
+Pari le plus probable : réussi 80,7 % (annoncé 80,0 %). **Aucun avantage prouvé** : parier quand l'agent voit +5 %
+sur la cote de clôture donne +2,4 % ± 6,5 (592 paris, 2025-26), soit dans la marge du hasard ; et la cote de
+clôture n'est pas celle qu'on obtient en pariant plus tôt. Ne jamais présenter l'appli comme un moyen de gagner.
+
+Essayé le 23/11/2026 sans gain (banc identique au moteur) : retour vers la moyenne en début de saison (10 à 35 %),
+mélange notes rapides + lentes, cotes Pinnacle en priorité, calibration appliquée au 1N2 seul (remplacée par SPREAD).
 
 ### Ce qui a été essayé et abandonné (ne pas refaire sans raison nouvelle)
 
