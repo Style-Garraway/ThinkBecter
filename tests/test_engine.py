@@ -126,9 +126,37 @@ class Ratings(unittest.TestCase):
         _, state = ratings.walk(h[:first])  # tout ce qui précède le premier match du promu
         m = h[first]
         self.assertEqual(ratings.predict(state, m["league"], m["season"], m["home"], m["away"])[2], 0)
-        self.assertEqual(state["teams"][("Premier League", "Leeds")], {"a": 1 / ratings.PROMO, "d": ratings.PROMO, "n": 0})
+        self.assertEqual(state["teams"][("Premier League", "Leeds")], {"a": 1 / ratings.PROMO, "d": ratings.PROMO, "n": 0, "ns": 0})
         self.assertNotEqual(state["teams"][("Premier League", "Arsenal")]["a"], 1.0)  # un ancien garde ses notes
+        played = sum(1 for g in h[:first] if g["season"] == 2026 and "Arsenal" in (g["home"], g["away"]))
+        self.assertEqual(state["teams"][("Premier League", "Arsenal")]["ns"], played)  # compteur remis à zéro à la nouvelle saison
+        self.assertLess(played, state["teams"][("Premier League", "Arsenal")]["n"])
         self.assertNotIn("Man City", state["members"][("Premier League", 2026)])
+
+    def test_spread_keeps_total_goals(self):
+        state = ratings.new_state()
+        state["teams"][("L", "A")] = {"a": 1.3, "d": 0.8, "n": 9, "ns": 9}
+        state["teams"][("L", "B")] = {"a": 0.9, "d": 1.1, "n": 9, "ns": 9}
+        lh0, la0, _ = ratings._raw(state, "L", 2026, "A", "B")
+        lh, la, _ = ratings.predict(state, "L", 2026, "A", "B")
+        self.assertAlmostEqual(lh + la, lh0 + la0)    # même total : les paris plus/moins de buts ne bougent pas
+        self.assertGreater(lh / la, lh0 / la0)        # mais l'écart entre les équipes est amplifié
+        self.assertAlmostEqual(lh / la, (lh0 / la0) ** ratings.SPREAD)
+
+    def test_home_advantage_and_fast_start_are_learned(self):
+        state = ratings.new_state()
+        game = {"league": "L", "season": 2026, "home": "A", "away": "B", "mkt": (2.4, 0.9)}  # A bien plus fort chez lui que prévu
+        ratings.update(state, game)
+        self.assertGreater(state["home"][("L", "A")], 0)           # avantage du terrain de A appris
+        self.assertNotIn(("L", "B"), state["home"])                # rien pour B, qui jouait à l'extérieur
+        # premier match de la saison : pas d'apprentissage rapide (K_EARLY) au lieu de K
+        self.assertAlmostEqual(state["teams"][("L", "A")]["a"], 1 + ratings.K_EARLY * (2.4 / 1.5 - 1))
+        for _ in range(ratings.N_EARLY):
+            ratings.update(state, game)
+        a = state["teams"][("L", "A")]["a"]
+        ratings.update(state, game)
+        self.assertEqual(state["teams"][("L", "A")]["ns"], ratings.N_EARLY + 2)
+        self.assertLess(abs(state["teams"][("L", "A")]["a"] - a), abs(a - 1))  # après 4 matchs : retour à la vitesse normale
 
 
 class Names(unittest.TestCase):
