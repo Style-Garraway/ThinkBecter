@@ -3,7 +3,7 @@
 1. football-data (sans clé) : notes des équipes, scores des matchs joués, calendrier de la journée à venir ;
    fixturedownload (sans clé) : calendrier des deux semaines à venir ;
 2. The Odds API (clé facultative) : coupes d'Europe et cotes Betclic ;
-3. API-Football (clé facultative) : joueurs forfaits ;
+3. API-Football (clé facultative) : joueurs forfaits, et numéros des matchs du jour pour réclamer les compositions ;
 4. journal de preuve : les pronostics du moment sont enregistrés.
 """
 from datetime import datetime, timedelta
@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from . import track
 from .database import db
 from .engine import pipeline
-from .ingest import fixturedownload, footballdata, injuries, odds_api
+from .ingest import apifootball, fixturedownload, footballdata, injuries, lineups, odds_api
 from .ingest.names import best_match, display
 
 FMT = "%Y-%m-%dT%H:%M"
@@ -58,7 +58,8 @@ def sync_calendar(conn, model, now, fetch=footballdata.download):
     return [f"Calendrier des semaines à venir indisponible ({', '.join(failed)})."] if failed else []
 
 
-def run(conn, model, now=None, fetch=footballdata.download, odds_fetcher=odds_api.fetch, injuries_fetcher=injuries.fetch):
+def run(conn, model, now=None, fetch=footballdata.download, odds_fetcher=odds_api.fetch, injuries_fetcher=injuries.fetch,
+        fixtures_fetcher=lineups.fetch_fixtures):
     """Met à jour `model` (dictionnaire partagé avec le serveur) et la base. Renvoie le compte rendu, aussi enregistré
     dans les réglages (clé « status ») pour que l'écran dise de quand datent les données. Lève RuntimeError sans aucune donnée."""
     now = now or datetime.now()
@@ -76,9 +77,11 @@ def run(conn, model, now=None, fetch=footballdata.download, odds_fetcher=odds_ap
         status.update(credits=o["remaining"], with_odds=o["with_odds"])
     key = db.get(conn, "apifootball_key")
     if key:
-        i = injuries.sync(conn, key, now, injuries_fetcher)
-        warnings += i["errors"]
-        status["absents"] = i["absents"]
+        spend = apifootball.spender(conn, now, floor=35)  # 35 requêtes gardées pour les compositions du jour
+        i = injuries.sync(conn, key, now, injuries_fetcher, spend)
+        f = lineups.sync_fixtures(conn, key, now, fixtures_fetcher, spend)
+        warnings += i["errors"] + f["errors"]
+        status.update(absents=i["absents"], linked=f["linked"])
     status["logged"] = track.log_predictions(conn, pipeline.upcoming(conn, model, now), now)
     status["warnings"] = list(dict.fromkeys(warnings))  # sans doublons, dans l'ordre
     db.put(conn, "status", status)
