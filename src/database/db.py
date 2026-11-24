@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS predictions (
     top_market TEXT, top_sel TEXT, top_p REAL, odds_h REAL, odds_d REAL, odds_a REAL
 );
 CREATE TABLE IF NOT EXISTS absences (team_id INTEGER NOT NULL, player TEXT NOT NULL, reason TEXT, fixture_ts TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS lineups (
+    match_id INTEGER PRIMARY KEY, fixture_id INTEGER NOT NULL, home_api INTEGER, away_api INTEGER,  -- numéros API-Football
+    tries INTEGER DEFAULT 0, last_try TEXT, at TEXT,  -- tentatives de réclamation ; heure de réception de la composition
+    home TEXT, away TEXT                              -- composition (JSON), NULL tant qu'elle n'est pas publiée
+);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 """
 SECRET_KEYS = ("odds_api_key", "apifootball_key")  # ne quittent jamais la base (ni vers l'écran, ni vers le journal)
