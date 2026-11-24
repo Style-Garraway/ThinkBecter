@@ -1,5 +1,6 @@
 """API locale (127.0.0.1 uniquement) et page de l'appli."""
 import threading
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -8,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from .. import refresh, track
 from ..database import db
 from ..engine import pipeline
+from ..ingest import apifootball, crests, lineups
 from . import clipboard
 
 STATIC = Path(__file__).resolve().parents[1] / "ui" / "static"
@@ -54,6 +56,29 @@ def do_refresh():
         except RuntimeError as e:
             raise HTTPException(502, f"{e}. Vérifie ta connexion internet puis réessaie.")
         return payload()
+
+
+@app.post("/api/lineups")
+def poll_lineups():
+    """Réclame les compositions qui peuvent être publiées maintenant (la page appelle ceci toutes les 2 minutes ;
+    une requête n'est dépensée que si une composition est due) et renvoie toutes les compositions connues."""
+    now = datetime.now()
+    with lock:
+        key, errors = db.get(conn, "apifootball_key"), []
+        if key:
+            errors = lineups.poll(conn, key, now, spend=apifootball.spender(conn, now, floor=3))["errors"]
+        return {"lineups": lineups.stored(conn), "errors": errors}
+
+
+@app.get("/crest/{cid}")
+def crest(cid: int):
+    """Logo d'un club connu, gardé en cache sur ce PC. Un numéro inconnu est refusé : ce serveur ne sert pas de relais."""
+    with lock:
+        known = crests.known_ids(db.get(conn, "crest_extra", {}))
+    path = crests.image(cid) if cid in known else None  # téléchargement hors verrou : le réseau peut être lent
+    if not path:
+        raise HTTPException(404, "Logo indisponible.")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.post("/api/copy/{match_id}")
