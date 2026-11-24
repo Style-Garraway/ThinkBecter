@@ -3,7 +3,7 @@ import zlib
 from datetime import datetime, timedelta
 
 from ..database import db
-from ..ingest import footballdata
+from ..ingest import crests, footballdata, lineups
 from . import europe, ratings
 from .dixon_coles import score_matrices
 from .montecarlo import markets, simulate
@@ -54,8 +54,10 @@ def absent(conn, m):
     return {side: [r["player"] for r in conn.execute(sql, (m[side + "_id"], m["kickoff"]))] for side in ("home", "away")}
 
 
-def verdict(conn, model, m):
-    """Résultat net d'un match : chances 1N2, pronostic, pari le plus probable, cotes Betclic (information), absents."""
+def verdict(conn, model, m, ctx=None):
+    """Résultat net d'un match : chances 1N2, pronostic, pari le plus probable, cotes Betclic, absents, logos, composition.
+    `ctx` (voir `context`) évite de relire la base pour chaque match d'une liste."""
+    ctx = ctx or context(conn)
     lh, la, estimated = expected_goals(model, m)
     # Graine tirée du match lui-même : tous les utilisateurs voient les mêmes chiffres.
     seed = zlib.crc32(f"{m['home']}|{m['away']}|{m['kickoff'][:10]}".encode())
@@ -69,11 +71,18 @@ def verdict(conn, model, m):
         "pick": {"label": {"H": f"{m['home']} gagne", "D": "Match nul", "A": f"{m['away']} gagne"}[sel], "p": p, "fair_odds": 1 / p},
         "top": {"label": label(market, tsel, m["home"], m["away"]), "p": tp, "fair_odds": 1 / tp, "market": market, "sel": tsel},
         "odds": odds if len(odds) == 3 else {}, "absent": absent(conn, m),
+        "home_crest": crests.crest_id(m["home"], ctx["crests"]), "away_crest": crests.crest_id(m["away"], ctx["crests"]),
+        "lineup": ctx["lineups"].get(m["id"]),
     }
+
+
+def context(conn):
+    """Ce que `verdict` lit dans la base en dehors du match lui-même : logos appris, compositions publiées."""
+    return {"crests": db.get(conn, "crest_extra", {}), "lineups": lineups.stored(conn)}
 
 
 def upcoming(conn, model, now=None, days=14):
     """Pronostics de tous les matchs non commencés des `days` prochains jours."""
     now = now or datetime.now()
-    rows = db.rows(conn, db.UPCOMING, (now.strftime(FMT), (now + timedelta(days=days)).strftime(FMT)))
-    return [verdict(conn, model, m) for m in rows]
+    rows, ctx = db.rows(conn, db.UPCOMING, (now.strftime(FMT), (now + timedelta(days=days)).strftime(FMT))), context(conn)
+    return [verdict(conn, model, m, ctx) for m in rows]
