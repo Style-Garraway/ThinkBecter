@@ -17,10 +17,29 @@ from src.database import db
 from src.engine import europe, pipeline, ratings
 from src.engine.dixon_coles import outcome_probs, over_prob, score_matrices
 from src.engine.montecarlo import markets, simulate
-from src.ingest import footballdata, injuries, odds_api
+from src.ingest import apifootball, crests, footballdata, injuries, lineups, odds_api
 from src.ingest.names import best_match, display
 
 NOW = datetime(2026, 11, 20, 12, 0)
+EMPTY = lambda key, arg: {"errors": [], "response": []}  # réponse d'API-Football sans aucun résultat
+
+
+def forbidden(*args):
+    raise AssertionError("ce test n'a pas le droit d'utiliser internet")
+
+
+def api_fixture(kick_local, league, home, away, status="NS", fid=900):
+    """Un match tel que le renvoie /fixtures ; home et away = (numéro, nom). L'heure est donnée en heure locale du PC."""
+    iso = datetime.strptime(kick_local, "%Y-%m-%dT%H:%M").astimezone().isoformat()
+    return {"fixture": {"id": fid, "date": iso, "status": {"short": status}}, "league": {"id": league},
+            "teams": {"home": {"id": home[0], "name": home[1]}, "away": {"id": away[0], "name": away[1]}}}
+
+
+def api_lineup(team_id, name, formation, n=11):
+    """Une composition telle que la renvoie /fixtures/lineups."""
+    return {"team": {"id": team_id, "name": name}, "coach": {"name": f"Coach {name}"}, "formation": formation,
+            "startXI": [{"player": {"id": i, "name": f"{name} joueur {i}", "number": i, "pos": "M"}} for i in range(1, n + 1)],
+            "substitutes": [{"player": {"id": 50, "name": f"{name} remplaçant", "number": 20, "pos": "F"}}]}
 TEAMS = {"E0": ["Arsenal", "Chelsea", "Liverpool", "Man City"], "SP1": ["Barcelona", "Real Madrid", "Sevilla", "Valencia"],
          "D1": ["Bayern Munich", "Dortmund", "Mainz", "Stuttgart"], "I1": ["Inter", "Juventus", "Milan", "Roma"],
          "F1": ["Lille", "Lyon", "Marseille", "Paris SG"]}
@@ -202,6 +221,9 @@ class App(unittest.TestCase):
         self.fd, self.model = FakeFootballData(), {}
 
     def run_refresh(self, now=NOW, **kw):
+        # Par défaut aucune source à clé n'est joignable : un test qui en a besoin doit fournir la sienne.
+        for name, default in (("odds_fetcher", forbidden), ("injuries_fetcher", forbidden), ("fixtures_fetcher", EMPTY)):
+            kw.setdefault(name, default)
         return refresh.run(self.conn, self.model, now=now, fetch=self.fd, **kw)
 
     def test_first_launch_without_any_key(self):
@@ -291,7 +313,7 @@ class App(unittest.TestCase):
                                                item(39, "Arsenal", "R. Reserve", "Missing Fixture", "Off the roster"),
                                                item(128, "Arsenal Sarandi", "J. Autre", "Missing Fixture"), item(39, "Chelsea", "C. Palmer", "Missing Fixture")]}
         status = self.run_refresh(injuries_fetcher=lambda key, date: answers)
-        self.assertEqual(status["absents"], 2)
+        self.assertEqual((status["absents"], status["warnings"]), (2, []))
         after = pipeline.upcoming(self.conn, self.model, NOW)[0]
         self.assertEqual(after["absent"], {"home": ["B. Saka"], "away": ["C. Palmer"]})  # ni l'incertain, ni le non-inscrit, ni l'homonyme argentin
         self.assertEqual(after["probs"], before["probs"])
@@ -299,12 +321,131 @@ class App(unittest.TestCase):
         self.assertEqual(len(status["warnings"]), 1)
         self.assertEqual(pipeline.upcoming(self.conn, self.model, NOW)[0]["absent"]["home"], ["B. Saka"])  # liste gardée si l'API ne répond pas
 
+    def arsenal_chelsea(self):
+        """Le match Arsenal - Chelsea du faux calendrier (id, heure locale)."""
+        self.run_refresh()
+        m = self.conn.execute("SELECT m.id, m.kickoff FROM matches m JOIN teams h ON h.id = m.home_id "
+                              "WHERE h.name = 'Arsenal' AND m.competition = 'Premier League' ORDER BY m.kickoff").fetchone()
+        return m["id"], m["kickoff"], datetime.strptime(m["kickoff"], "%Y-%m-%dT%H:%M")
+
+    def link_fixture(self, kick_text, kick):
+        answers = iter([{"errors": [], "response": [
+            api_fixture(kick_text, 39, (42, "Arsenal"), (49, "Chelsea")),
+            api_fixture(kick_text, 128, (42, "Arsenal Sarandi"), (49, "Autre")),                   # autre pays : ignoré
+            api_fixture(kick_text, 39, (42, "Arsenal"), (49, "Chelsea"), status="FT", fid=901)]}, EMPTY(0, 0)])  # déjà joué : ignoré
+        return lineups.sync_fixtures(self.conn, "cle", kick - timedelta(days=1), lambda key, date: next(answers))
+
+    def test_fixtures_link_then_lineups_are_polled_at_the_right_time(self):
+        mid, kick_text, kick = self.arsenal_chelsea()
+        out = self.link_fixture(kick_text, kick)
+        self.assertEqual((out["linked"], out["errors"]), (1, []))
+        row = lambda: self.conn.execute("SELECT * FROM lineups WHERE match_id = ?", (mid,)).fetchone()
+        self.assertEqual((row()["fixture_id"], row()["home_api"], row()["away_api"]), (900, 42, 49))
+        self.assertEqual(lineups.poll(self.conn, "cle", kick - timedelta(hours=3), forbidden)["found"], 0)  # trop tôt : aucune requête
+        t = kick - timedelta(minutes=60)
+        self.assertEqual(lineups.poll(self.conn, "cle", t, lambda key, fid: EMPTY(0, 0))["found"], 0)       # pas encore publiée
+        self.assertEqual(row()["tries"], 1)
+        self.assertEqual(lineups.poll(self.conn, "cle", t + timedelta(minutes=5), forbidden)["found"], 0)    # réessai trop rapproché
+        asked = []
+        published = {"errors": [], "response": [api_lineup(49, "Chelsea", "4-2-3-1"), api_lineup(42, "Arsenal", "4-3-3")]}  # extérieur en premier
+        out = lineups.poll(self.conn, "cle", t + timedelta(minutes=15), lambda key, fid: asked.append(fid) or published)
+        self.assertEqual((out["found"], asked), (1, [900]))
+        shown = lineups.stored(self.conn)[mid]
+        self.assertEqual((shown["home"]["formation"], shown["away"]["formation"]), ("4-3-3", "4-2-3-1"))  # attribuées par numéro d'équipe
+        self.assertEqual((len(shown["home"]["xi"]), shown["home"]["coach"], shown["home"]["xi"][0]["name"]), (11, "Coach Arsenal", "Arsenal joueur 1"))
+        self.assertEqual(lineups.poll(self.conn, "cle", t + timedelta(minutes=40), forbidden)["found"], 0)  # déjà publiée : plus rien à demander
+        v = {x["id"]: x for x in pipeline.upcoming(self.conn, self.model, kick - timedelta(hours=1))}[mid]
+        self.assertEqual(v["lineup"]["home"]["formation"], "4-3-3")
+        self.assertEqual((v["home_crest"], v["away_crest"]), (42, 49))
+
+    def test_lineup_requests_are_limited(self):
+        mid, kick_text, kick = self.arsenal_chelsea()
+        self.link_fixture(kick_text, kick)
+        tries = lambda: self.conn.execute("SELECT tries FROM lineups WHERE match_id = ?", (mid,)).fetchone()[0]
+        for k in range(lineups.MAX_TRIES):  # 5 tentatives sans composition, une toutes les 15 minutes
+            lineups.poll(self.conn, "cle", kick - timedelta(minutes=60) + timedelta(minutes=15 * k), lambda key, fid: EMPTY(0, 0))
+        self.assertEqual(tries(), lineups.MAX_TRIES)
+        self.conn.execute("UPDATE lineups SET last_try = '2000-01-01T00:00'")
+        self.assertEqual(lineups.poll(self.conn, "cle", kick + timedelta(minutes=5), forbidden)["found"], 0)  # 5 tentatives : on s'arrête
+        self.conn.execute("UPDATE lineups SET tries = 0, last_try = NULL")
+        t = kick - timedelta(minutes=30)
+        out = lineups.poll(self.conn, "cle", t, forbidden, spend=lambda: False)  # budget épuisé : aucune requête n'est tentée
+        self.assertEqual((out["errors"], tries()), ([apifootball.LIMIT_MESSAGE], 0))
+        out = lineups.poll(self.conn, "cle", t, lambda key, fid: {"errors": {"requests": "quota"}, "response": []})
+        self.assertEqual((out["errors"], tries()), (["API-Football : quota"], 0))  # une erreur du service ne compte pas comme une tentative
+
+        def down(key, fid):
+            raise OSError("hors ligne")
+        self.assertEqual(lineups.poll(self.conn, "cle", t, down)["errors"], ["API-Football injoignable."])
+
+    def test_unknown_club_logo_is_learned_from_fixtures(self):
+        mid, kick_text, kick = self.arsenal_chelsea()
+        self.conn.execute("UPDATE teams SET name = 'Club Sans Logo FC' WHERE name = 'Chelsea'")
+        self.conn.commit()
+        self.assertIsNone(crests.crest_id("Club Sans Logo FC"))
+        answers = iter([{"errors": [], "response": [api_fixture(kick_text, 39, (42, "Arsenal"), (4242, "Club Sans Logo"))]}, EMPTY(0, 0)])
+        out = lineups.sync_fixtures(self.conn, "cle", kick - timedelta(days=1), lambda key, date: next(answers))
+        self.assertEqual(out["linked"], 1)  # « Club Sans Logo FC » et « Club Sans Logo » désignent le même club
+        self.assertEqual(db.get(self.conn, "crest_extra"), {"Club Sans Logo FC": 4242})
+        v = {x["id"]: x for x in pipeline.upcoming(self.conn, self.model, kick - timedelta(hours=1))}[mid]
+        self.assertEqual((v["home_crest"], v["away_crest"]), (42, 4242))
+
+    def test_api_football_daily_budget(self):
+        now = datetime(2026, 11, 24, 12, 0)
+        spend = apifootball.spender(self.conn, now, floor=35)
+        db.put(self.conn, "af_usage", {"day": apifootball._day(now), "used": 64})
+        self.assertEqual((spend(), spend()), (True, False))  # 100 - 35 = 65 requêtes pour les actualisations
+        self.assertEqual(apifootball.used(self.conn, now), 65)
+        self.assertTrue(apifootball.spender(self.conn, now, floor=3)())  # les compositions disposent des 35 gardées en réserve
+        self.assertEqual(apifootball.used(self.conn, now + timedelta(days=1)), 0)  # nouveau jour UTC : compteur remis à zéro
+        apifootball.note_remaining(self.conn, now, {"_remaining": 20})
+        self.assertEqual(apifootball.used(self.conn, now), 80)    # le service dit qu'il en reste 20 : 80 utilisées
+        apifootball.note_remaining(self.conn, now, {"_remaining": 90})
+        apifootball.note_remaining(self.conn, now, {})
+        self.assertEqual(apifootball.used(self.conn, now), 80)    # jamais de retour en arrière, et sans information rien ne change
+
+    def test_refresh_stops_asking_api_football_when_the_budget_is_gone(self):
+        self.run_refresh()
+        self.conn.execute("INSERT OR REPLACE INTO settings VALUES ('apifootball_key', '\"cle\"')")
+        db.put(self.conn, "af_usage", {"day": apifootball._day(NOW), "used": 65})
+        status = self.run_refresh(injuries_fetcher=forbidden, fixtures_fetcher=forbidden)  # aucune requête n'a le droit de partir
+        self.assertEqual(status["warnings"], [apifootball.LIMIT_MESSAGE])  # un seul message pour les deux sources
+
     def test_european_strength(self):
         strong, weak = europe.strength("Arsenal", "Premier League", (1.2, 0.8)), europe.strength("Inconnu FC", None, None)
         self.assertEqual(weak, (europe.DEFAULT, 1 / europe.DEFAULT))
         self.assertLessEqual(europe.strength("FC Copenhagen", None, None)[0], europe.MAX_CLUB)
         lh, la = europe.expected_goals(strong, weak)
         self.assertGreater(lh, la * 2)
+
+
+class Crests(unittest.TestCase):
+    def test_table_and_lookup(self):
+        self.assertEqual(len(crests.IDS), len(set(crests.IDS.values())))  # un identifiant distinct par club
+        self.assertEqual(crests.crest_id("Arsenal"), 42)
+        self.assertEqual(crests.crest_id("Manchester City FC"), crests.IDS["Manchester City"])  # écriture voisine reconnue
+        self.assertNotEqual(crests.crest_id("Paris FC"), crests.crest_id("Paris Saint Germain"))  # deux clubs de Paris, deux logos
+        self.assertIsNone(crests.crest_id("Club inconnu XYZ"))
+        self.assertEqual(crests.crest_id("Club inconnu XYZ", {"Club inconnu XYZ": 777}), 777)
+        self.assertIn(777, crests.known_ids({"x": 777}))
+
+    def test_image_cache_only_keeps_small_png_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old, crests.CACHE = crests.CACHE, Path(tmp) / "crests"
+            try:
+                png, calls = crests.PNG + b"x" * 100, []
+                path = crests.image(42, lambda url: calls.append(url) or png)
+                self.assertEqual((path.read_bytes(), calls), (png, ["https://media.api-sports.io/football/teams/42.png"]))
+                self.assertEqual(crests.image(42, forbidden), path)  # deuxième fois : lu sur le disque, aucun téléchargement
+                self.assertIsNone(crests.image(43, lambda url: b"<html>ceci n'est pas une image</html>"))
+                self.assertIsNone(crests.image(44, lambda url: crests.PNG + b"x" * crests.MAX_BYTES))
+
+                def down(url):
+                    raise OSError("hors ligne")
+                self.assertIsNone(crests.image(45, down))
+                self.assertEqual([f.name for f in crests.CACHE.iterdir()], ["42.png"])  # rien d'autre n'a été enregistré
+            finally:
+                crests.CACHE = old
 
 
 class Server(unittest.TestCase):
