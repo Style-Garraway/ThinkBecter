@@ -3,6 +3,7 @@
 Les sources (football-data, The Odds API, API-Football) sont remplacées par de faux mini-championnats de 4 équipes.
 """
 import json
+import math
 import re
 import tempfile
 import unittest
@@ -17,7 +18,7 @@ from src.database import db
 from src.engine import europe, pipeline, ratings
 from src.engine.dixon_coles import outcome_probs, over_prob, score_matrices
 from src.engine.montecarlo import markets, simulate
-from src.ingest import apifootball, crests, footballdata, injuries, lineups, odds_api
+from src.ingest import apifootball, crests, footballdata, injuries, lineups, odds_api, scorers
 from src.ingest.names import best_match, display
 
 NOW = datetime(2026, 11, 20, 12, 0)
@@ -222,7 +223,7 @@ class App(unittest.TestCase):
 
     def run_refresh(self, now=NOW, **kw):
         # Par défaut aucune source à clé n'est joignable : un test qui en a besoin doit fournir la sienne.
-        for name, default in (("odds_fetcher", forbidden), ("injuries_fetcher", forbidden), ("fixtures_fetcher", EMPTY)):
+        for name, default in (("odds_fetcher", forbidden), ("injuries_fetcher", forbidden), ("fixtures_fetcher", EMPTY), ("players_fetcher", lambda now: ({}, []))):
             kw.setdefault(name, default)
         return refresh.run(self.conn, self.model, now=now, fetch=self.fd, **kw)
 
@@ -269,7 +270,7 @@ class App(unittest.TestCase):
 
         def down(url):
             raise OSError("panne")
-        status = refresh.run(self.conn, self.model, now=NOW + timedelta(hours=1), fetch=down)
+        status = refresh.run(self.conn, self.model, now=NOW + timedelta(hours=1), fetch=down, players_fetcher=lambda now: ({}, []))
         self.assertEqual(len(status["warnings"]), 3)  # données et les deux calendriers non mis à jour : dit à l'écran, sans planter
         self.assertEqual(len(pipeline.upcoming(self.conn, self.model, NOW)), 3)
 
@@ -417,6 +418,59 @@ class App(unittest.TestCase):
         self.assertLessEqual(europe.strength("FC Copenhagen", None, None)[0], europe.MAX_CLUB)
         lh, la = europe.expected_goals(strong, weak)
         self.assertGreater(lh, la * 2)
+
+
+class Scorers(unittest.TestCase):
+    FPL = {"teams": [{"id": 1, "name": "Arsenal"}], "elements": [
+        dict(web_name=n, team=1, element_type=t, status=s, minutes=m, goals_scored=g, expected_goals=str(xg), assists=a, expected_assists=str(xa))
+        for n, t, s, m, g, xg, a, xa in (("Buteur", 4, "a", 900, 10, 8.0, 1, 1.0), ("Blessé", 4, "i", 900, 12, 12, 0, 0),
+                                         ("Remplaçant", 3, "a", 60, 5, 5, 5, 5), ("Passeur", 3, "a", 900, 1, 1, 8, 6.0), ("Gardien", 1, "a", 900, 0, 0, 0, 0))]}
+
+    def test_fpl_keeps_only_available_regulars(self):
+        squad = scorers.fpl_players(self.FPL)["Arsenal"]
+        self.assertEqual(sorted(p["name"] for p in squad), ["Buteur", "Gardien", "Passeur"])  # blessé et remplaçant écartés
+        self.assertAlmostEqual(next(p["rg"] for p in squad if p["name"] == "Buteur"), 9 / 10)  # (10 buts + 8 attendus) / 2, sur 10 matchs
+
+    def test_chances_follow_the_expected_goals_of_the_match(self):
+        clubs = {"Arsenal": scorers.fpl_players(self.FPL)["Arsenal"]}
+        usual = scorers.likely(clubs, "Arsenal", 1.5, usual=1.5)
+        self.assertEqual(usual["scorers"][0]["name"], "Buteur")
+        self.assertAlmostEqual(usual["scorers"][0]["p"], 1 - math.exp(-0.9))
+        self.assertEqual(usual["assists"][0]["name"], "Passeur")
+        more = scorers.likely(clubs, "Arsenal", 3.0, usual=1.5)["scorers"][0]["p"]
+        self.assertGreater(more, usual["scorers"][0]["p"])  # l'équipe doit marquer deux fois plus : le joueur aussi
+        self.assertEqual(scorers.likely(clubs, "Club inconnu XYZ", 1.5), {"scorers": [], "assists": []})
+        self.assertEqual(scorers.likely({}, "Arsenal", 1.5), {"scorers": [], "assists": []})
+
+    def test_espn_leaders_are_resolved_to_names_and_rates(self):
+        ref = lambda kind, i: {"$ref": f"http://x/{kind}/{i}"}
+        leaders = lambda kind: [{"displayValue": f"Matches: 10, Goals: {v}", "value": v, "athlete": ref("a", i), "team": ref("t", 1)}
+                                for i, v in ((1, 8), (2, 5))]
+        pages = {"http://x/": None}
+        data = {"categories": [{"name": "goalsLeaders", "leaders": leaders("g")}, {"name": "assistsLeaders", "leaders": leaders("a")[:1]}]}
+
+        def get(url):
+            url = url.replace("https://", "http://")
+            if "leaders" in url:
+                return data
+            kind, i = url.split("/")[-2:]
+            return {"displayName": "FC Test"} if kind == "t" else {"fullName": f"Joueur {i}", "position": {"abbreviation": "F"}}
+        out = scorers.espn_players("La Liga", "esp.1", 2026, get)["FC Test"]
+        by = {p["name"]: p for p in out}
+        self.assertEqual((by["Joueur 1"]["rg"], by["Joueur 1"]["ra"], by["Joueur 2"]["ra"]), (0.8, 0.8, 0))
+
+    def test_sync_runs_at_most_twice_a_day_and_survives_failures(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        conn = db.connect(Path(tmp.name) / "t.db")
+        self.addCleanup(conn.close)
+        calls = []
+        ok = lambda now: calls.append(now) or ({"Arsenal": [{"name": "A", "pos": "F", "rg": 1, "ra": 0}]}, ["Une source en panne."])
+        self.assertEqual(scorers.sync(conn, NOW, ok), {"players": 1, "errors": ["Une source en panne."]})
+        self.assertEqual(scorers.sync(conn, NOW + timedelta(hours=3), forbidden), {"players": 1, "errors": []})  # trop tôt : aucun appel
+        down = lambda now: ({}, ["Tout est en panne."])
+        self.assertEqual(scorers.sync(conn, NOW + timedelta(hours=13), down), {"players": 1, "errors": ["Tout est en panne."]})  # l'ancienne liste reste
+        self.assertEqual(len(calls), 1)
 
 
 class Crests(unittest.TestCase):
