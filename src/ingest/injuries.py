@@ -3,27 +3,21 @@
 Information seule, affichée sous le match. Le calcul des chances n'en tient PAS compte : la correction essayée en
 octobre 2026 dégradait les pronostics (journal réel, 28 matchs : 1,02 avec contre 0,96 sans ; plus bas = mieux).
 """
-import json
-import urllib.request
 from datetime import datetime, timedelta, timezone
 
 from ..database import db
+from . import apifootball
+from .apifootball import LEAGUE_IDS
 from .names import best_match
 
-URL = "https://v3.football.api-sports.io/injuries?date={date}"
-# Identifiants API-Football des compétitions suivies : le reste du monde est ignoré (sinon « Arsenal Sarandí » = Arsenal).
-LEAGUE_IDS = {39: "Premier League", 140: "La Liga", 78: "Bundesliga", 135: "Serie A", 61: "Ligue 1",
-              2: "Ligue des Champions", 3: "Ligue Europa", 848: "Ligue Conférence"}
 NOT_AN_ABSENCE = ("off the roster", "inactive")  # joueurs non inscrits dans la compétition : ni blessés ni suspendus
 
 
 def fetch(key, date):
-    req = urllib.request.Request(URL.format(date=date), headers={"x-apisports-key": key})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode())
+    return apifootball.get(key, f"/injuries?date={date}")
 
 
-def sync(conn, key, now, fetcher=fetch):
+def sync(conn, key, now, fetcher=fetch, spend=None):
     """Remplace la liste des forfaits des matchs d'aujourd'hui et de demain. Renvoie {"absents": n, "errors": [...]}."""
     out = {"absents": 0, "errors": []}
     lo, hi = (now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M"), (now + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M")
@@ -35,14 +29,17 @@ def sync(conn, key, now, fetcher=fetch):
     today = now.astimezone(timezone.utc)
     for day in (today, today + timedelta(days=1)):
         date = day.strftime("%Y-%m-%d")
+        if spend and not spend():
+            out["errors"].append(apifootball.LIMIT_MESSAGE)
+            break
         try:
             data = fetcher(key, date)
         except (OSError, ValueError):
             out["errors"].append("API-Football injoignable.")
             continue
-        errs = data.get("errors")
-        if errs:  # clé refusée, quota, date hors de l'offre gratuite... (dictionnaire ou liste selon le cas)
-            out["errors"].append("API-Football : " + "; ".join(map(str, errs.values() if isinstance(errs, dict) else errs))[:140])
+        apifootball.note_remaining(conn, now, data)
+        if apifootball.errors_text(data):  # clé refusée, quota, date hors de l'offre gratuite...
+            out["errors"].append(apifootball.errors_text(data))
             continue
         answered = True
         for it in data.get("response", []):
