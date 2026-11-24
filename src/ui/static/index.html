@@ -49,7 +49,20 @@
   tr.lineup td { background: var(--panel); }
   .lineup .sides { display: flex; gap: 32px; flex-wrap: wrap; }
   .lineup .sides div { min-width: 240px; flex: 1; }
-  .lineup ol { margin: 6px 0 0; padding-left: 22px; columns: 1; } .lineup p { margin: 6px 0 0; }
+  .lineup p { margin: 6px 0 0; }
+  .pitch { position: relative; width: 100%; max-width: 980px; aspect-ratio: 2 / 1; margin: 8px auto 0; border-radius: 10px; border: 2px solid #ffffff55;
+    background: repeating-linear-gradient(90deg, #1d6b3a 0 10%, #1a6335 10% 20%); overflow: hidden; }
+  .pitch::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 2px solid #ffffff55; }
+  .pitch::after { content: ""; position: absolute; left: 50%; top: 50%; width: 15%; aspect-ratio: 1; transform: translate(-50%, -50%); border: 2px solid #ffffff55; border-radius: 50%; }
+  .pl { position: absolute; transform: translate(-50%, -50%); width: 78px; text-align: center; z-index: 1; font-size: 11px; line-height: 1.15; color: #fff; text-shadow: 0 1px 2px #000; }
+  .pl i { display: grid; place-items: center; width: 26px; height: 26px; margin: 0 auto 2px; border-radius: 50%; font: 700 12px/1 "Segoe UI", sans-serif; font-style: normal; text-shadow: none; }
+  .pl.h i { background: #fff; color: #0b2a17; } .pl.a i { background: #0b0f14; color: #fff; border: 2px solid #f5a524; }
+  .pl small { display: block; color: #ffffffb3; font-size: 9px; }
+  .pitch-cap { display: flex; justify-content: space-between; max-width: 980px; margin: 8px auto 0; font-weight: 600; }
+  .bench { max-width: 980px; margin: 6px auto 0; color: var(--muted); font-size: 12px; }
+  .players .cols { display: flex; gap: 32px; flex-wrap: wrap; } .players .cols > div { flex: 1; min-width: 260px; }
+  .players h4 { margin: 8px 0 4px; font-size: 12px; color: var(--accent); text-transform: uppercase; letter-spacing: .4px; }
+  .players li { list-style: none; display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid var(--line); } .players ul { margin: 0; padding: 0; }
   small { color: var(--muted); }
   .teams small.out { display: block; color: var(--red); }
   .num { font-family: "Cascadia Mono", Consolas, monospace; white-space: nowrap; }
@@ -140,13 +153,45 @@ function show(d) {
   render();
 }
 
-const opened_l = new Set();
+const opened_l = new Set(), opened_p = new Set();
 const crest = (id) => (id ? `<img class="crest" src="/crest/${id}" alt="" loading="lazy" onerror="this.remove()">` : "");
 
+// Place les 11 joueurs sur le terrain d'après le schéma (ex. « 4-2-3-1 ») : gardien, puis une rangée par chiffre.
+// Les joueurs sont triés gardien > défenseur > milieu > attaquant ; si le schéma ne tombe pas juste, on groupe par poste.
+function rows(l) {
+  const order = { G: 0, D: 1, M: 2, F: 3 }, xi = [...l.xi].sort((p, q) => (order[p.pos] ?? 2) - (order[q.pos] ?? 2));
+  const counts = String(l.formation || "").split("-").map(Number);
+  if (counts.length > 1 && counts.every((n) => n > 0) && counts.reduce((x, y) => x + y, 1) === xi.length) {
+    let i = 1;
+    return [[xi[0]], ...counts.map((n) => xi.slice(i, (i += n)))];
+  }
+  return ["G", "D", "M", "F"].map((g) => xi.filter((p) => (p.pos || "M") === g)).filter((r) => r.length);
+}
+
+function pitchSide(l, cls) {
+  const rs = rows(l);
+  return rs.map((r, i) => r.map((p, j) => {
+    const x = 5 + (i / Math.max(1, rs.length - 1)) * 40, y = ((j + 1) / (r.length + 1)) * 100;
+    return `<div class="pl ${cls}" style="left:${cls === "h" ? x : 100 - x}%;top:${y}%" title="${esc(p.name)}${p.pos ? " · " + esc(p.pos) : ""}"><i>${esc(p.n ?? "")}</i>${esc(p.name)}</div>`;
+  }).join("")).join("");
+}
+
 function lineupRow(m) {
-  const side = (name, l) => `<div><b>${esc(name)}</b> · ${esc(l.formation || "")}<ol>${l.xi.map((p) => `<li>${esc(p.name)}${p.number ? ` (${p.number})` : ""}</li>`).join("")}</ol>` +
-    `${l.coach ? `<p><small>Entraîneur : ${esc(l.coach)}</small></p>` : ""}</div>`;
-  return `<tr class="lineup"><td colspan="6"><div class="sides">${side(m.home, m.lineup.home)}${side(m.away, m.lineup.away)}</div></td></tr>`;
+  const L = m.lineup, bench = (l) => (l.bench || []).map((p) => esc(p.name)).join(", ");
+  return `<tr class="lineup"><td colspan="6">
+    <div class="pitch-cap"><span>${esc(m.home)} · ${esc(L.home.formation || "")}</span><span>${esc(L.away.formation || "")} · ${esc(m.away)}</span></div>
+    <div class="pitch">${pitchSide(L.home, "h")}${pitchSide(L.away, "a")}</div>
+    <div class="bench">${L.home.coach ? `Entraîneur ${esc(m.home)} : ${esc(L.home.coach)}. ` : ""}${bench(L.home) ? `Remplaçants : ${bench(L.home)}. ` : ""}<br>${
+      L.away.coach ? `Entraîneur ${esc(m.away)} : ${esc(L.away.coach)}. ` : ""}${bench(L.away) ? `Remplaçants : ${bench(L.away)}.` : ""}</div></td></tr>`;
+}
+
+const hasPlayers = (m) => m.players && ["home", "away"].some((s) => m.players[s].scorers.length || m.players[s].assists.length);
+
+function playersRow(m) {
+  const list = (items) => items.length ? `<ul>${items.map((x) => `<li><span>${esc(x.name)} <small>${esc(x.pos || "")}</small></span><b>${pct(x.p)}</b></li>`).join("")}</ul>` : "<small>Pas de donnée.</small>";
+  const side = (name, p) => `<div><b>${esc(name)}</b><h4>Buteurs probables</h4>${list(p.scorers)}<h4>Passeurs probables</h4>${list(p.assists)}</div>`;
+  return `<tr class="lineup players"><td colspan="6"><div class="cols">${side(m.home, m.players.home)}${side(m.away, m.players.away)}</div>
+    <p class="note">Estimation tirée des buts et passes de la saison (Premier League : tous les joueurs ; autres championnats : seulement les 25 meilleurs buteurs et passeurs). Non validée par un test sur le passé. Chances d'au moins un but, ou d'au moins une passe décisive, dans le match.</p></td></tr>`;
 }
 
 // Compte à rebours jusqu'au coup d'envoi, mis à jour toutes les 30 s sans refaire le tableau.
@@ -197,8 +242,8 @@ function render() {
       <td class="num trio"><span><i>1</i>${pct(m.probs.H)}</span><span><i>N</i>${pct(m.probs.D)}</span><span><i>2</i>${pct(m.probs.A)}</span></td>
       <td class="num trio odds">${o.H ? `<span><i>1</i>${odd(o.H)}</span><span><i>N</i>${odd(o.D)}</span><span><i>2</i>${odd(o.A)}</span>` : "—"}</td>
       <td><span class="yes">${esc(t.label)}</span><br><small>${pct(t.p)} de chances · cote juste ${odd(t.fair_odds)}</small></td>
-      <td><button data-copy="${m.id}">Copier</button>${m.lineup ? ` <button data-lineup="${m.id}">${opened_l.has(m.id) ? "Masquer" : "Compo"}</button>` : ""}</td>
-    </tr>${m.lineup && opened_l.has(m.id) ? lineupRow(m) : ""}`;
+      <td><button data-copy="${m.id}">Copier</button>${m.lineup ? ` <button data-lineup="${m.id}">${opened_l.has(m.id) ? "Masquer compo" : "Compo"}</button>` : ""}${hasPlayers(m) ? ` <button data-players="${m.id}">${opened_p.has(m.id) ? "Masquer" : "Buteurs"}</button>` : ""}</td>
+    </tr>${m.lineup && opened_l.has(m.id) ? lineupRow(m) : ""}${hasPlayers(m) && opened_p.has(m.id) ? playersRow(m) : ""}`;
   }
   $("#rows").innerHTML = html;
   tick();
@@ -239,6 +284,8 @@ $("#gear").addEventListener("click", () => $("#settings").classList.toggle("open
 $("#rows").addEventListener("click", async (e) => {
   const lid = e.target.dataset.lineup;
   if (lid !== undefined) { opened_l.has(+lid) ? opened_l.delete(+lid) : opened_l.add(+lid); return render(); }
+  const pid = e.target.dataset.players;
+  if (pid !== undefined) { opened_p.has(+pid) ? opened_p.delete(+pid) : opened_p.add(+pid); return render(); }
   const id = e.target.dataset.copy;
   if (id === undefined) return;
   // Copie faite par Python dans le presse-papiers Windows : la fenêtre peut bloquer la copie faite par la page.
