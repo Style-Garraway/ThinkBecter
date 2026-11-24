@@ -3,7 +3,7 @@ import zlib
 from datetime import datetime, timedelta
 
 from ..database import db
-from ..ingest import crests, footballdata, lineups
+from ..ingest import crests, footballdata, lineups, scorers
 from . import europe, ratings
 from .dixon_coles import score_matrices
 from .montecarlo import markets, simulate
@@ -54,6 +54,23 @@ def absent(conn, m):
     return {side: [r["player"] for r in conn.execute(sql, (m[side + "_id"], m["kickoff"]))] for side in ("home", "away")}
 
 
+def usual_goals(model):
+    """Buts marqués par match cette saison, par club (noms football-data). Calculé une fois par actualisation."""
+    key = ("usual", id(model["history"]))
+    if key not in usual_goals.cache:
+        usual_goals.cache = {key: None}
+        goals, played = {}, {}
+        for h in model["history"]:
+            if h["season"] == model["season"]:
+                for club, g in ((h["home"], h["hg"]), (h["away"], h["ag"])):
+                    goals[club], played[club] = goals.get(club, 0) + g, played.get(club, 0) + 1
+        usual_goals.cache[key] = {c: goals[c] / played[c] for c in goals if played[c] >= 3}
+    return usual_goals.cache[key]
+
+
+usual_goals.cache = {}
+
+
 def verdict(conn, model, m, ctx=None):
     """Résultat net d'un match : chances 1N2, pronostic, pari le plus probable, cotes Betclic, absents, logos, composition.
     `ctx` (voir `context`) évite de relire la base pour chaque match d'une liste."""
@@ -73,12 +90,15 @@ def verdict(conn, model, m, ctx=None):
         "odds": odds if len(odds) == 3 else {}, "absent": absent(conn, m),
         "home_crest": crests.crest_id(m["home"], ctx["crests"]), "away_crest": crests.crest_id(m["away"], ctx["crests"]),
         "lineup": ctx["lineups"].get(m["id"]),
+        "players": {"home": scorers.likely(ctx["players"], m["home"], lh, usual_goals(model).get(m["home_fd"])),
+                    "away": scorers.likely(ctx["players"], m["away"], la, usual_goals(model).get(m["away_fd"]))},
     }
 
 
 def context(conn):
     """Ce que `verdict` lit dans la base en dehors du match lui-même : logos appris, compositions publiées."""
-    return {"crests": db.get(conn, "crest_extra", {}), "lineups": lineups.stored(conn)}
+    return {"crests": db.get(conn, "crest_extra", {}), "lineups": lineups.stored(conn),
+            "players": db.get(conn, "players", {}).get("clubs", {})}
 
 
 def upcoming(conn, model, now=None, days=14):
