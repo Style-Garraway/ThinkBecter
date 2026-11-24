@@ -43,7 +43,13 @@
   tr.day td { background: var(--panel); color: var(--accent); font-weight: 600; padding: 8px 10px; }
   tr.day td::first-letter { text-transform: uppercase; }
   table.no-odds .odds { display: none; }
-  .teams b { display: block; }
+  .teams b { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .crest { width: 22px; height: 22px; object-fit: contain; flex: none; }
+  .clock { color: var(--accent); font-weight: 600; }
+  tr.lineup td { background: var(--panel); }
+  .lineup .sides { display: flex; gap: 32px; flex-wrap: wrap; }
+  .lineup .sides div { min-width: 240px; flex: 1; }
+  .lineup ol { margin: 6px 0 0; padding-left: 22px; columns: 1; } .lineup p { margin: 6px 0 0; }
   small { color: var(--muted); }
   .teams small.out { display: block; color: var(--red); }
   .num { font-family: "Cascadia Mono", Consolas, monospace; white-space: nowrap; }
@@ -71,7 +77,7 @@
 <form id="settings" class="settings">
   <label><b>Clé The Odds API <span id="k-odds_api_key"></span></b>Facultatif. Ajoute les cotes Betclic et les coupes d'Europe.
     <input name="odds_api_key" type="password" autocomplete="off" placeholder="clé gratuite de the-odds-api.com"></label>
-  <label><b>Clé API-Football <span id="k-apifootball_key"></span></b>Facultatif. Affiche les joueurs forfaits des matchs d'aujourd'hui et de demain.
+  <label><b>Clé API-Football <span id="k-apifootball_key"></span></b>Facultatif. Affiche les joueurs forfaits et les compositions (environ 1 h avant le match), pour aujourd'hui et demain seulement.
     <input name="apifootball_key" type="password" autocomplete="off" placeholder="clé gratuite de api-football.com"></label>
   <button class="primary">Enregistrer</button>
   <p>L'appli fonctionne sans aucune clé pour les 5 grands championnats. Les clés restent sur ce PC. Le guide (fichier README) explique comment les obtenir.</p>
@@ -118,6 +124,7 @@ async function api(path, opts = {}) {
 
 function show(d) {
   all = d.matches;
+  hasKey = !!d.keys.apifootball_key;
   const s = d.status;
   $("#fresh").textContent = s.refreshed_at
     ? `Résultats connus jusqu'au ${day(s.data_until, { day: "numeric", month: "long" })} · actualisé le ${day(s.refreshed_at, { day: "numeric", month: "long" })} à ${s.refreshed_at.slice(11)}` : "";
@@ -132,6 +139,39 @@ function show(d) {
     [...new Set(all.map((m) => m.competition))].sort().map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("");
   render();
 }
+
+const opened_l = new Set();
+const crest = (id) => (id ? `<img class="crest" src="/crest/${id}" alt="" loading="lazy" onerror="this.remove()">` : "");
+
+function lineupRow(m) {
+  const side = (name, l) => `<div><b>${esc(name)}</b> · ${esc(l.formation || "")}<ol>${l.xi.map((p) => `<li>${esc(p.name)}${p.number ? ` (${p.number})` : ""}</li>`).join("")}</ol>` +
+    `${l.coach ? `<p><small>Entraîneur : ${esc(l.coach)}</small></p>` : ""}</div>`;
+  return `<tr class="lineup"><td colspan="6"><div class="sides">${side(m.home, m.lineup.home)}${side(m.away, m.lineup.away)}</div></td></tr>`;
+}
+
+// Compte à rebours jusqu'au coup d'envoi, mis à jour toutes les 30 s sans refaire le tableau.
+function tick() {
+  const now = Date.now();
+  for (const el of document.querySelectorAll(".clock")) {
+    const min = Math.round((new Date(el.dataset.kick) - now) / 60000);
+    el.textContent = min <= 0 ? "commence" : min < 60 ? `dans ${min} min` : min < 1440 ? `dans ${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}` : `dans ${Math.floor(min / 1440)} j`;
+  }
+}
+setInterval(tick, 30000);
+
+// Compositions : toutes les 2 min, seulement si une clé API-Football est enregistrée et qu'un match va commencer (ou vient de commencer).
+let hasKey = false;
+async function pollLineups() {
+  const near = all.some((m) => { const min = (new Date(m.kickoff) - Date.now()) / 60000; return min < 70 && min > -10; });
+  if (!hasKey || !near) return;
+  try {
+    const r = await (await fetch("/api/lineups", { method: "POST" })).json();
+    let changed = false;
+    for (const m of all) { const l = r.lineups?.[m.id]; if (l && !m.lineup) { m.lineup = l; changed = true; } }
+    if (changed) render();
+  } catch { /* hors ligne : on réessaie dans 2 minutes */ }
+}
+setInterval(pollLineups, 120000);
 
 function render() {
   const comp = $("#f-comp").value, club = plain($("#f-club").value.trim());
@@ -151,16 +191,17 @@ function render() {
     }
     const o = m.odds, t = m.top, out = [...m.absent.home, ...m.absent.away];
     html += `<tr>
-      <td class="teams"><b>${esc(m.home)} – ${esc(m.away)}${m.estimated ? " *" : ""}</b><small>${m.kickoff.slice(11)} · ${esc(m.competition)}</small>${
+      <td class="teams"><b>${crest(m.home_crest)}${esc(m.home)} – ${crest(m.away_crest)}${esc(m.away)}${m.estimated ? " *" : ""}</b><small>${m.kickoff.slice(11)} · <span class="clock" data-kick="${m.kickoff}"></span> · ${esc(m.competition)}</small>${
         out.length ? `<small class="out">Forfaits : ${esc(out.slice(0, 6).join(", "))}${out.length > 6 ? ` (+${out.length - 6})` : ""}</small>` : ""}</td>
       <td><b>${esc(m.pick.label)}</b><br><small>${pct(m.pick.p)} · cote juste ${odd(m.pick.fair_odds)}</small></td>
       <td class="num trio"><span><i>1</i>${pct(m.probs.H)}</span><span><i>N</i>${pct(m.probs.D)}</span><span><i>2</i>${pct(m.probs.A)}</span></td>
       <td class="num trio odds">${o.H ? `<span><i>1</i>${odd(o.H)}</span><span><i>N</i>${odd(o.D)}</span><span><i>2</i>${odd(o.A)}</span>` : "—"}</td>
       <td><span class="yes">${esc(t.label)}</span><br><small>${pct(t.p)} de chances · cote juste ${odd(t.fair_odds)}</small></td>
-      <td><button data-copy="${m.id}">Copier</button></td>
-    </tr>`;
+      <td><button data-copy="${m.id}">Copier</button>${m.lineup ? ` <button data-lineup="${m.id}">${opened_l.has(m.id) ? "Masquer" : "Compo"}</button>` : ""}</td>
+    </tr>${m.lineup && opened_l.has(m.id) ? lineupRow(m) : ""}`;
   }
   $("#rows").innerHTML = html;
+  tick();
   $("#note").textContent = list.some((m) => m.estimated)
     ? "* Estimation grossière : coupe d'Europe (pas de test possible sur le passé) ou club promu encore peu connu." : "";
 }
@@ -196,6 +237,8 @@ $("#refresh").addEventListener("click", () => refresh());
 $("#gear").addEventListener("click", () => $("#settings").classList.toggle("open"));
 
 $("#rows").addEventListener("click", async (e) => {
+  const lid = e.target.dataset.lineup;
+  if (lid !== undefined) { opened_l.has(+lid) ? opened_l.delete(+lid) : opened_l.add(+lid); return render(); }
   const id = e.target.dataset.copy;
   if (id === undefined) return;
   // Copie faite par Python dans le presse-papiers Windows : la fenêtre peut bloquer la copie faite par la page.
