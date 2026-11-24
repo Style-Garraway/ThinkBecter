@@ -34,7 +34,7 @@ Tout reste dans le dossier de l'appli : pour la désinstaller, supprime simpleme
 
 | Colonne | Ce que c'est |
 |---|---|
-| **Match** | Les deux équipes, l'heure (celle de ton PC) et la compétition. Le logo de chaque club, le compte à rebours jusqu'au coup d'envoi, et en rouge les joueurs forfaits (clé API-Football). Quand la composition est publiée (environ 1 h avant le match, clé API-Football), un bouton **Compo** apparaît. |
+| **Match** | Les deux équipes, l'heure (celle de ton PC) et la compétition. Le logo de chaque club, le compte à rebours jusqu'au coup d'envoi, et en rouge les joueurs forfaits (clé API-Football). Quand la composition est publiée (environ 1 h avant le match, clé API-Football), un bouton **Compo** apparaît : les 11 joueurs sont placés sur un terrain selon le schéma de jeu. Le bouton **Buteurs** montre les buteurs et passeurs probables (sans clé : Premier League via Fantasy Premier League, tous les joueurs ; La Liga, Bundesliga, Serie A et Ligue 1 via ESPN, seulement les 25 meilleurs buteurs et passeurs ; estimation non validée par un test sur le passé). |
 | **Pronostic de l'agent** | Le résultat le plus probable (victoire à domicile, nul ou victoire à l'extérieur) et sa chance. |
 | **Chances 1 / N / 2** | 1 = victoire de l'équipe à domicile, N = match nul, 2 = victoire de l'équipe à l'extérieur. |
 | **Cote Betclic** | Affichée seulement si tu as mis la clé The Odds API. Pour comparer : l'agent ne s'en sert pas dans son calcul. |
@@ -67,7 +67,7 @@ L'appli affiche les crédits restants après chaque actualisation.
 2. Copie la clé affichée dans ton tableau de bord (offre « Free » : 100 requêtes par jour).
 3. Dans l'appli, clique sur **⚙**, colle la clé dans **Clé API-Football**, puis clique sur **Enregistrer**.
 
-L'offre gratuite ne donne les forfaits et les compositions que pour les matchs d'aujourd'hui et de demain, dans la limite de 100 requêtes par jour (l'appli en garde une réserve pour les compositions). Les logos viennent du serveur d'images d'API-Football, sont gardés sur ton PC (dossier `data/crests`) et ne sont pas dans ce dépôt. Les buteurs et passeurs probables ne sont pas disponibles : les sources gratuites ne les fournissent pas pour la saison en cours. C'est une simple information :
+L'offre gratuite ne donne les forfaits et les compositions que pour les matchs d'aujourd'hui et de demain, dans la limite de 100 requêtes par jour (l'appli en garde une réserve pour les compositions). Les logos viennent du serveur d'images d'API-Football, sont gardés sur ton PC (dossier `data/crests`) et ne sont pas dans ce dépôt. Les buteurs et passeurs viennent d'autres sources gratuites (voir plus haut) et ne couvrent pas les coupes d'Europe ni les clubs hors des 5 grands championnats. C'est une simple information :
 l'agent ne change pas ses chances en fonction des absents (l'essai a été fait, il rendait les pronostics moins bons).
 
 Tes clés sont enregistrées sur ton PC, dans le dossier `data` de l'appli. Elles ne sont envoyées qu'au service concerné.

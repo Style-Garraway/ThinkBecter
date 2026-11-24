@@ -33,6 +33,7 @@ ThinkBecter/
 │   ├── ingest/injuries.py      facultatif : forfaits du jour et du lendemain (API-Football), information seule
 │   ├── ingest/apifootball.py   appel API-Football + budget de 100 requêtes/jour (réserve pour les compositions)
 │   ├── ingest/lineups.py       numéros des matchs du jour, compositions réclamées de H-65 min à H+10 min
+│   ├── ingest/scorers.py       buteurs/passeurs probables : Fantasy Premier League (tous) + ESPN (25 premiers par championnat), sans clé, 1 fois/12 h
 │   ├── ingest/crests.py        logos : table club -> id API-Football, cache local data/crests (hors dépôt)
 │   ├── ingest/names.py         noms de clubs entre sources (table football-data -> nom affiché, alias, best_match)
 │   ├── engine/ratings.py       notes d'attaque/défense apprises sur les cotes de clôture des matchs passés
