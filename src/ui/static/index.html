@@ -68,6 +68,12 @@
   .num { font-family: "Cascadia Mono", Consolas, monospace; white-space: nowrap; }
   .trio span { display: inline-block; min-width: 64px; } .trio i { font-style: normal; color: var(--muted); margin-right: 4px; }
   .yes { color: var(--green); font-weight: 600; }
+  .sure { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 4px; background: #22e07a22; color: var(--green); font-size: 11px; font-weight: 600; }
+  .open { color: var(--accent); }
+  td.lost { background: #f04b4b14; } .lost .res, .won .res { font-weight: 700; } .lost .res { color: var(--red); } .won .res { color: var(--green); }
+  #history { margin: 14px 24px 0; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; display: none; }
+  #history.open { display: block; } #history table { margin-top: 8px; } #history .tbl { max-height: 460px; overflow: auto; }
+  #history .bands span { display: inline-block; margin: 4px 16px 0 0; }
   .empty { text-align: center; color: var(--muted); padding: 48px; }
   .note { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
   #toast { position: fixed; right: 20px; bottom: 20px; max-width: 70%; background: var(--panel); border: 1px solid var(--green); padding: 10px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
@@ -85,6 +91,7 @@
   <span id="fresh"></span>
   <span class="spacer"></span>
   <button id="refresh" class="primary">Actualiser</button>
+  <button id="hist">Historique</button>
   <button id="gear" title="Clés facultatives" aria-label="Clés facultatives">⚙</button>
 </header>
 <form id="settings" class="settings">
@@ -95,11 +102,18 @@
   <button class="primary">Enregistrer</button>
   <p>L'appli fonctionne sans aucune clé pour les 5 grands championnats. Les clés restent sur ce PC. Le guide (fichier README) explique comment les obtenir.</p>
 </form>
+<section id="history">
+  <p id="h-sum"></p><p class="bands" id="h-bands"></p>
+  <label><input type="checkbox" id="h-lost"> Seulement les paris perdus</label>
+  <div class="tbl"><table><thead><tr><th>Date</th><th>Match</th><th>Score</th><th>Pronostic 1N2</th><th>Pari le plus probable</th></tr></thead><tbody id="h-rows"></tbody></table></div>
+  <p class="note">Recalculé comme l'agent l'aurait fait avant chaque match (il ne connaît alors que les matchs finis 3 jours plus tôt), sur les 5 championnats. Ce n'est pas le journal réel (qui se remplit depuis le 23/11). Gagner souvent ne veut pas dire gagner de l'argent : les cotes du bookmaker comprennent déjà sa marge.</p>
+</section>
 <div id="warn" class="banner" hidden></div>
 <main>
   <div class="filters">
     <select id="f-comp" aria-label="Compétition"><option value="">Toutes les compétitions</option></select>
     <input id="f-club" type="search" placeholder="Chercher un club…" autocomplete="off" aria-label="Chercher un club">
+    <label><input type="checkbox" id="f-sure"> Paris sûrs seulement (85 % et plus)</label>
     <small id="count"></small>
   </div>
   <table id="table">
@@ -153,7 +167,7 @@ function show(d) {
   render();
 }
 
-const opened_l = new Set(), opened_p = new Set();
+const opened_l = new Set(), opened_p = new Set(), opened_m = new Set();
 const crest = (id) => (id ? `<img class="crest" src="/crest/${id}" alt="" loading="lazy" onerror="this.remove()">` : "");
 
 // Place les 11 joueurs sur le terrain d'après le schéma (ex. « 4-2-3-1 ») : gardien, puis une rangée par chiffre.
@@ -183,6 +197,18 @@ function lineupRow(m) {
     <div class="pitch">${pitchSide(L.home, "h")}${pitchSide(L.away, "a")}</div>
     <div class="bench">${L.home.coach ? `Entraîneur ${esc(m.home)} : ${esc(L.home.coach)}. ` : ""}${bench(L.home) ? `Remplaçants : ${bench(L.home)}. ` : ""}<br>${
       L.away.coach ? `Entraîneur ${esc(m.away)} : ${esc(L.away.coach)}. ` : ""}${bench(L.away) ? `Remplaçants : ${bench(L.away)}.` : ""}</div></td></tr>`;
+}
+
+function marketsRow(m) {
+  const x = m.more, line = (label, p) => `<li><span>${label}</span><b>${pct(p)}</b></li>`;
+  return `<tr class="lineup players"><td colspan="6"><div class="cols">
+    <div><h4>Les deux équipes marquent</h4><ul>${line("Oui", x.btts.Yes)}${line("Non", x.btts.No)}</ul>
+      <h4>Plus / moins de buts</h4><ul>${["1.5", "2.5", "3.5"].map((l) => line(`Plus de ${l.replace(".", ",")} buts`, x.ou[l])).join("")}</ul></div>
+    <div><h4>Double chance</h4><ul>${line(`${esc(m.home)} ou nul`, x.double["1N"])}${line(`${esc(m.home)} ou ${esc(m.away)} (pas de nul)`, x.double["12"])}${line(`Nul ou ${esc(m.away)}`, x.double["N2"])}</ul>
+      <h4>Équipe qui ne prend pas de but</h4><ul>${line(esc(m.home), x.clean.home)}${line(esc(m.away), x.clean.away)}</ul></div>
+    <div><h4>Scores les plus probables</h4><ul>${x.scores.map((s) => line(s.score, s.p)).join("")}</ul>
+      <p class="note">Un score exact tombe rarement : même le plus probable reste sous 15 %.</p></div></div>
+    <p class="note">Calculé sur les mêmes 10 000 matchs simulés que le reste. « Les deux équipes marquent » est le pari le plus dur à prévoir : l'agent ne dépasse presque jamais 65 %.</p></td></tr>`;
 }
 
 const hasPlayers = (m) => m.players && ["home", "away"].some((s) => m.players[s].scorers.length || m.players[s].assists.length);
@@ -220,7 +246,7 @@ setInterval(pollLineups, 120000);
 
 function render() {
   const comp = $("#f-comp").value, club = plain($("#f-club").value.trim());
-  const list = all.filter((m) => (!comp || m.competition === comp) && (!club || plain(m.home + " " + m.away).includes(club)));
+  const list = all.filter((m) => (!comp || m.competition === comp) && (!club || plain(m.home + " " + m.away).includes(club)) && (!$("#f-sure").checked || m.top.p >= 0.85));
   $("#count").textContent = list.length === all.length ? `${all.length} matchs` : `${list.length} / ${all.length} matchs`;
   if (!list.length) {
     $("#rows").innerHTML = `<tr><td colspan="6" class="empty">${all.length ? "Aucun match pour ce filtre." : "Aucun match à venir pour le moment. Clique sur « Actualiser »."}</td></tr>`;
@@ -238,12 +264,12 @@ function render() {
     html += `<tr>
       <td class="teams"><b>${crest(m.home_crest)}${esc(m.home)} – ${crest(m.away_crest)}${esc(m.away)}${m.estimated ? " *" : ""}</b><small>${m.kickoff.slice(11)} · <span class="clock" data-kick="${m.kickoff}"></span> · ${esc(m.competition)}</small>${
         out.length ? `<small class="out">Forfaits : ${esc(out.slice(0, 6).join(", "))}${out.length > 6 ? ` (+${out.length - 6})` : ""}</small>` : ""}</td>
-      <td><b>${esc(m.pick.label)}</b><br><small>${pct(m.pick.p)} · cote juste ${odd(m.pick.fair_odds)}</small></td>
+      <td><b>${esc(m.pick.label)}</b><br><small>${pct(m.pick.p)} · cote juste ${odd(m.pick.fair_odds)}</small>${m.pick.p < 0.45 ? '<br><small class="open">Match ouvert : pas de pari conseillé</small>' : ""}</td>
       <td class="num trio"><span><i>1</i>${pct(m.probs.H)}</span><span><i>N</i>${pct(m.probs.D)}</span><span><i>2</i>${pct(m.probs.A)}</span></td>
       <td class="num trio odds">${o.H ? `<span><i>1</i>${odd(o.H)}</span><span><i>N</i>${odd(o.D)}</span><span><i>2</i>${odd(o.A)}</span>` : "—"}</td>
-      <td><span class="yes">${esc(t.label)}</span><br><small>${pct(t.p)} de chances · cote juste ${odd(t.fair_odds)}</small></td>
-      <td><button data-copy="${m.id}">Copier</button>${m.lineup ? ` <button data-lineup="${m.id}">${opened_l.has(m.id) ? "Masquer compo" : "Compo"}</button>` : ""}${hasPlayers(m) ? ` <button data-players="${m.id}">${opened_p.has(m.id) ? "Masquer" : "Buteurs"}</button>` : ""}</td>
-    </tr>${m.lineup && opened_l.has(m.id) ? lineupRow(m) : ""}${hasPlayers(m) && opened_p.has(m.id) ? playersRow(m) : ""}`;
+      <td><span class="yes">${esc(t.label)}</span>${t.p >= 0.85 ? '<span class="sure">Sûr</span>' : ""}<br><small>${pct(t.p)} de chances · cote juste ${odd(t.fair_odds)}</small></td>
+      <td><button data-copy="${m.id}">Copier</button>${m.lineup ? ` <button data-lineup="${m.id}">${opened_l.has(m.id) ? "Masquer compo" : "Compo"}</button>` : ""}${` <button data-more="${m.id}">${opened_m.has(m.id) ? "Masquer paris" : "Autres paris"}</button>`}${hasPlayers(m) ? ` <button data-players="${m.id}">${opened_p.has(m.id) ? "Masquer" : "Buteurs"}</button>` : ""}</td>
+    </tr>${m.lineup && opened_l.has(m.id) ? lineupRow(m) : ""}${hasPlayers(m) && opened_p.has(m.id) ? playersRow(m) : ""}${opened_m.has(m.id) ? marketsRow(m) : ""}`;
   }
   $("#rows").innerHTML = html;
   tick();
@@ -276,7 +302,25 @@ async function refresh(first = false) {
   } finally { b.disabled = false; b.textContent = "Actualiser"; }
 }
 
+$("#f-sure").addEventListener("change", render);
 $("#f-comp").addEventListener("change", render);
+let hist = null;
+function showHistory() {
+  const s = hist.stats, lost = $("#h-lost").checked;
+  $("#h-sum").innerHTML = `Sur <b>${s.n}</b> matchs passés : le pari le plus probable a gagné <b>${pct(s.top_hit)}</b> du temps, mais le pronostic 1N2 (qui gagne) seulement <b>${pct(s.pick_hit)}</b>.`;
+  $("#h-bands").innerHTML = s.bands.map((b) => `<span>annoncé ${b.to >= 1 ? "90 % et +" : `${Math.round(b.from * 100)}–${Math.round(b.to * 100)} %`} : <b>${pct(b.hit)}</b> gagnés (${b.n} matchs)</span>`).join("");
+  $("#h-rows").innerHTML = hist.rows.filter((r) => !lost || !r.top.hit || !r.pick.hit).map((r) => {
+    const cell = (x) => `<td class="${x.hit ? "won" : "lost"}"><span class="res">${x.hit ? "✓" : "✗"}</span> ${esc(x.label)} <small>${pct(x.p)}</small></td>`;
+    return `<tr><td>${day(r.date, { day: "numeric", month: "short" })}</td><td>${esc(r.home)} – ${esc(r.away)}<br><small>${esc(r.competition)}</small></td><td class="num">${r.score}</td>${cell(r.pick)}${cell(r.top)}</tr>`;
+  }).join("") || '<tr><td colspan="5" class="empty">Aucun.</td></tr>';
+}
+$("#hist").addEventListener("click", async () => {
+  const box = $("#history");
+  box.classList.toggle("open");
+  if (box.classList.contains("open") && !hist) { hist = await api("/api/history"); }
+  if (hist) showHistory();
+});
+$("#h-lost").addEventListener("change", () => hist && showHistory());
 $("#f-club").addEventListener("input", render);
 $("#refresh").addEventListener("click", () => refresh());
 $("#gear").addEventListener("click", () => $("#settings").classList.toggle("open"));
@@ -284,6 +328,8 @@ $("#gear").addEventListener("click", () => $("#settings").classList.toggle("open
 $("#rows").addEventListener("click", async (e) => {
   const lid = e.target.dataset.lineup;
   if (lid !== undefined) { opened_l.has(+lid) ? opened_l.delete(+lid) : opened_l.add(+lid); return render(); }
+  const mid = e.target.dataset.more;
+  if (mid !== undefined) { opened_m.has(+mid) ? opened_m.delete(+mid) : opened_m.add(+mid); return render(); }
   const pid = e.target.dataset.players;
   if (pid !== undefined) { opened_p.has(+pid) ? opened_p.delete(+pid) : opened_p.add(+pid); return render(); }
   const id = e.target.dataset.copy;
