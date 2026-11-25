@@ -50,8 +50,8 @@ def summary(rows):
             "bands": bands, "sure": SURE} if n else {"n": 0}
 
 
-def get(model, limit=400, min_seen=MIN_SEEN):
-    """Les `limit` derniers matchs, du plus récent au plus ancien, avec le bilan sur tous."""
+def get(model, limit=None, min_seen=MIN_SEEN):
+    """Les `limit` derniers matchs (tous par défaut), du plus récent au plus ancien, avec le bilan sur tous."""
     key = (id(model["history"]), min_seen)
     if key not in _cache:
         _cache.clear()
