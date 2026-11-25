@@ -52,7 +52,9 @@ Le bouton **Autres paris** donne, pour chaque match : les deux équipes marquent
 
 ## Historique et paris sûrs
 
-Le bouton **Historique** montre les matchs passés, avec le pronostic de l'agent et le pari le plus probable, gagnés (✓) ou perdus (✗). Tu peux choisir un championnat et n'afficher que les paris gagnés ou que les paris perdus (le bilan se recalcule pour le championnat choisi). Sur 1 683 matchs recalculés comme l'agent les aurait faits avant le coup d'envoi : le pari le plus probable gagne **81 %** du temps (88 % à 90 % quand l'agent l'annonce à 85 % ou plus, étiquette **Sûr**), mais le pronostic « qui gagne » seulement **54 %**. Les matchs ouverts (aucune équipe à 45 % ou plus) sont marqués « pas de pari conseillé ». La case « Paris sûrs seulement » ne garde que les paris à 85 % et plus.
+Le bouton **Historique** montre les matchs passés, avec le pronostic de l'agent et le pari le plus probable, gagnés (✓) ou perdus (✗). Tu peux choisir un championnat et n'afficher que les paris gagnés ou que les paris perdus, soit sur le pronostic du match (qui gagne), soit sur le pari le plus probable (le bilan se recalcule pour le championnat choisi). Sur 1 683 matchs recalculés comme l'agent les aurait faits avant le coup d'envoi : le pari le plus probable gagne **81 %** du temps (88 % à 90 % quand l'agent l'annonce à 85 % ou plus, étiquette **Sûr**), mais le pronostic « qui gagne » seulement **54 %**. Les matchs ouverts (aucune équipe à 45 % ou plus) sont marqués « pas de pari conseillé ». La case « Paris sûrs seulement » ne garde que les paris à 85 % et plus.
+
+**Ligue des Champions** : choisis-la dans la liste pour voir ses matchs déjà joués (résultats ESPN, sans clé). Attention, ce bilan est **trop flatteur** : les niveaux des clubs de coupe ont été calés sur ces mêmes matchs, donc ce n'est pas une preuve. Seuls les 5 championnats sont une vraie mesure.
 
 Gagner souvent ne veut pas dire gagner de l'argent : les cotes du bookmaker comprennent déjà sa marge, et un pari « sûr » à 1,10 ne rapporte presque rien pour le risque pris.
 
