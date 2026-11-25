@@ -104,7 +104,8 @@
 </form>
 <section id="history">
   <p id="h-sum"></p><p class="bands" id="h-bands"></p>
-  <label><input type="checkbox" id="h-lost"> Seulement les paris perdus</label>
+  <div class="filters"><select id="h-comp" aria-label="Championnat"><option value="">Tous les championnats</option></select>
+    <select id="h-res" aria-label="Résultat du pari le plus probable"><option value="">Tous les paris</option><option value="won">Seulement les paris gagnés (pari le plus probable)</option><option value="lost">Seulement les paris perdus (pari le plus probable)</option></select></div>
   <div class="tbl"><table><thead><tr><th>Date</th><th>Match</th><th>Score</th><th>Pronostic 1N2</th><th>Pari le plus probable</th></tr></thead><tbody id="h-rows"></tbody></table></div>
   <p class="note">Recalculé comme l'agent l'aurait fait avant chaque match (il ne connaît alors que les matchs finis 3 jours plus tôt), sur les 5 championnats. Ce n'est pas le journal réel (qui se remplit depuis le 23/11). Gagner souvent ne veut pas dire gagner de l'argent : les cotes du bookmaker comprennent déjà sa marge.</p>
 </section>
@@ -306,21 +307,33 @@ $("#f-sure").addEventListener("change", render);
 $("#f-comp").addEventListener("change", render);
 let hist = null;
 function showHistory() {
-  const s = hist.stats, lost = $("#h-lost").checked;
-  $("#h-sum").innerHTML = `Sur <b>${s.n}</b> matchs passés : le pari le plus probable a gagné <b>${pct(s.top_hit)}</b> du temps, mais le pronostic 1N2 (qui gagne) seulement <b>${pct(s.pick_hit)}</b>.`;
-  $("#h-bands").innerHTML = s.bands.map((b) => `<span>annoncé ${b.to >= 1 ? "90 % et +" : `${Math.round(b.from * 100)}–${Math.round(b.to * 100)} %`} : <b>${pct(b.hit)}</b> gagnés (${b.n} matchs)</span>`).join("");
-  $("#h-rows").innerHTML = hist.rows.filter((r) => !lost || !r.top.hit || !r.pick.hit).map((r) => {
+  const comp = $("#h-comp").value, res = $("#h-res").value;
+  const rows = hist.rows.filter((r) => !comp || r.competition === comp), n = rows.length;
+  const rate = (f) => (n ? pct(rows.filter(f).length / n) : "—");
+  $("#h-sum").innerHTML = `${comp ? esc(comp) : "Les 5 championnats"} : sur <b>${n}</b> matchs passés, le pari le plus probable a gagné <b>${rate((r) => r.top.hit)}</b> du temps, mais le pronostic 1N2 (qui gagne) seulement <b>${rate((r) => r.pick.hit)}</b>.`;
+  const bands = [[0, 0.75], [0.75, 0.8], [0.8, 0.85], [0.85, 0.9], [0.9, 1.01]];
+  $("#h-bands").innerHTML = bands.map(([lo, hi]) => {
+    const sel = rows.filter((r) => r.top.p >= lo && r.top.p < hi);
+    return sel.length ? `<span>annoncé ${lo === 0 ? "moins de 75 %" : hi > 1 ? "90 % et +" : `${Math.round(lo * 100)}–${Math.round(hi * 100)} %`} : <b>${pct(sel.filter((r) => r.top.hit).length / sel.length)}</b> gagnés (${sel.length} matchs)</span>` : "";
+  }).join("");
+  const shown = rows.filter((r) => !res || (res === "won") === r.top.hit);
+  $("#h-rows").innerHTML = shown.slice(0, 300).map((r) => {
     const cell = (x) => `<td class="${x.hit ? "won" : "lost"}"><span class="res">${x.hit ? "✓" : "✗"}</span> ${esc(x.label)} <small>${pct(x.p)}</small></td>`;
     return `<tr><td>${day(r.date, { day: "numeric", month: "short" })}</td><td>${esc(r.home)} – ${esc(r.away)}<br><small>${esc(r.competition)}</small></td><td class="num">${r.score}</td>${cell(r.pick)}${cell(r.top)}</tr>`;
-  }).join("") || '<tr><td colspan="5" class="empty">Aucun.</td></tr>';
+  }).join("") + (shown.length > 300 ? `<tr><td colspan="5" class="empty">${shown.length - 300} matchs plus anciens non affichés : choisis un championnat pour les voir.</td></tr>` : "") ||
+    '<tr><td colspan="5" class="empty">Aucun.</td></tr>';
 }
 $("#hist").addEventListener("click", async () => {
   const box = $("#history");
   box.classList.toggle("open");
-  if (box.classList.contains("open") && !hist) { hist = await api("/api/history"); }
+  if (box.classList.contains("open") && !hist) {
+    hist = await api("/api/history");
+    $("#h-comp").innerHTML += [...new Set(hist.rows.map((r) => r.competition))].sort().map((c) => `<option>${esc(c)}</option>`).join("");
+  }
   if (hist) showHistory();
 });
-$("#h-lost").addEventListener("change", () => hist && showHistory());
+$("#h-comp").addEventListener("change", () => hist && showHistory());
+$("#h-res").addEventListener("change", () => hist && showHistory());
 $("#f-club").addEventListener("input", render);
 $("#refresh").addEventListener("click", () => refresh());
 $("#gear").addEventListener("click", () => $("#settings").classList.toggle("open"));
