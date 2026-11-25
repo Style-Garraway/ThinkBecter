@@ -46,6 +46,16 @@ Tout reste dans le dossier de l'appli : pour la désinstaller, supprime simpleme
 - **Actualiser** : met à jour les résultats, le calendrier et les cotes. Une fois par jour suffit.
 - En haut, l'appli indique jusqu'à quelle date elle connaît les résultats. Sa source les publie une à deux fois par semaine.
 
+## Autres paris
+
+Le bouton **Autres paris** donne, pour chaque match : les deux équipes marquent (oui/non), plus ou moins de 1,5 / 2,5 / 3,5 buts, double chance (1N, 12, N2), l'équipe qui ne prend pas de but et les 3 scores les plus probables. Mesuré sur le passé, ces chances sont justes en moyenne (« les deux équipes marquent » : 53 % annoncé pour 54,6 % réel ; double chance : 68,5 % annoncé pour 68,3 %). « Les deux équipes marquent » reste très difficile à prévoir : l'agent ne dépasse presque jamais 65 %, et un score exact tombe rarement (moins de 15 %).
+
+## Historique et paris sûrs
+
+Le bouton **Historique** montre les 400 derniers matchs passés, avec le pronostic de l'agent et le pari le plus probable, gagnés (✓) ou perdus (✗). Tu peux n'afficher que les paris perdus. Sur 1 683 matchs recalculés comme l'agent les aurait faits avant le coup d'envoi : le pari le plus probable gagne **81 %** du temps (88 % à 90 % quand l'agent l'annonce à 85 % ou plus, étiquette **Sûr**), mais le pronostic « qui gagne » seulement **54 %**. Les matchs ouverts (aucune équipe à 45 % ou plus) sont marqués « pas de pari conseillé ». La case « Paris sûrs seulement » ne garde que les paris à 85 % et plus.
+
+Gagner souvent ne veut pas dire gagner de l'argent : les cotes du bookmaker comprennent déjà sa marge, et un pari « sûr » à 1,10 ne rapporte presque rien pour le risque pris.
+
 ## Les deux clés facultatives
 
 L'appli fonctionne **sans aucune clé** pour les 5 championnats. Deux clés gratuites ajoutent des informations.

@@ -33,6 +33,7 @@ ThinkBecter/
 │   ├── ingest/injuries.py      facultatif : forfaits du jour et du lendemain (API-Football), information seule
 │   ├── ingest/apifootball.py   appel API-Football + budget de 100 requêtes/jour (réserve pour les compositions)
 │   ├── ingest/lineups.py       numéros des matchs du jour, compositions réclamées de H-65 min à H+10 min
+│   ├── history.py              historique des matchs passés gagnés/perdus (walk-forward, retard 3 jours), bilan par tranche de confiance
 │   ├── ingest/scorers.py       buteurs/passeurs probables : Fantasy Premier League (tous) + ESPN (25 premiers par championnat), sans clé, 1 fois/12 h
 │   ├── ingest/crests.py        logos : table club -> id API-Football, cache local data/crests (hors dépôt)
 │   ├── ingest/names.py         noms de clubs entre sources (table football-data -> nom affiché, alias, best_match)
@@ -88,6 +89,7 @@ mélange notes rapides + lentes, cotes Pinnacle en priorité, calibration appliq
 - Ancien modèle (xG Understat sur 20 matchs + Elo, joueurs, fatigue) : 0,993 en 2025-26 ; journal réel du 19/10 au
   08/11/2026 (115 matchs) : 1,006 contre 0,939 pour le modèle actuel rejoué et 0,945 pour le marché.
 - xG ou buts réels ajoutés aux notes : 0,9808 à 0,9824 au lieu de 0,9803 (aucun gain). Réglage de K, PROMO, K_MU, ρ : plat.
+- Notes ramenées vers la moyenne au début de chaque saison (part gardée 0,7 à 0,95) : 0,9415 à 0,9435 contre 0,9415 en gardant tout (25/11/2026), donc rien. Les notes sont déjà propres à chaque saison (apprentissage rapide sur les 4 premiers matchs, promus à part).
 - Correction des absents sur les probabilités : journal réel, 28 matchs, 1,02 avec contre 0,96 sans. Retirée :
   les forfaits sont affichés, sans effet sur le calcul.
 - Understat et ClubElo : en panne en novembre 2026 (l'appli tournait sur des données figées sans le dire). Supprimés.
