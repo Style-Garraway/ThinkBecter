@@ -13,9 +13,9 @@ from pathlib import Path
 
 import numpy as np
 
-from src import refresh, track
+from src import history, refresh, track
 from src.database import db
-from src.engine import europe, pipeline, ratings
+from src.engine import europe, montecarlo, pipeline, ratings
 from src.engine.dixon_coles import outcome_probs, over_prob, score_matrices
 from src.engine.montecarlo import markets, simulate
 from src.ingest import apifootball, crests, footballdata, injuries, lineups, odds_api, scorers
@@ -411,6 +411,38 @@ class App(unittest.TestCase):
         db.put(self.conn, "af_usage", {"day": apifootball._day(NOW), "used": 65})
         status = self.run_refresh(injuries_fetcher=forbidden, fixtures_fetcher=forbidden)  # aucune requête n'a le droit de partir
         self.assertEqual(status["warnings"], [apifootball.LIMIT_MESSAGE])  # un seul message pour les deux sources
+
+    def test_other_markets_are_consistent_with_the_simulated_scores(self):
+        hg, ag = np.array([0, 1, 2, 1, 0, 3]), np.array([0, 1, 0, 2, 1, 3])
+        x = montecarlo.extras(hg, ag)
+        self.assertAlmostEqual(x["btts"]["Yes"], 3 / 6)  # 1-1, 1-2 et 3-3
+        self.assertAlmostEqual(x["btts"]["Yes"] + x["btts"]["No"], 1)
+        self.assertAlmostEqual(x["double"]["1N"] + x["double"]["N2"] - 3 / 6, 1)  # nuls comptés dans les deux
+        self.assertAlmostEqual(x["double"]["12"], 3 / 6)
+        self.assertEqual((x["clean"]["home"], x["clean"]["away"]), (2 / 6, 2 / 6))  # extérieur sans but encaissé : 0-0, 2-0 ; domicile : 0-0, 0-1
+        self.assertEqual(len(x["scores"]), 3)
+        self.run_refresh()
+        m = pipeline.upcoming(self.conn, self.model, NOW)[0]
+        self.assertAlmostEqual(sum(m["more"]["btts"].values()), 1)
+        self.assertEqual(m["more"]["ou"].keys(), {"1.5", "2.5", "3.5"})
+
+    def test_history_marks_each_past_bet_won_or_lost(self):
+        self.run_refresh()
+        got = history.get(self.model, min_seen=1)
+        rows = got["rows"]
+        self.assertTrue(rows)
+        self.assertEqual(got["stats"]["n"], len(rows))
+        for r in rows:
+            hg, ag = map(int, r["score"].split("-"))
+            if r["top"]["label"].startswith("Plus de"):
+                line = float(r["top"]["label"].split()[2].replace(",", "."))
+                self.assertEqual(r["top"]["hit"], hg + ag > line)
+            elif r["top"]["label"].startswith("Moins de"):
+                line = float(r["top"]["label"].split()[2].replace(",", "."))
+                self.assertEqual(r["top"]["hit"], hg + ag < line)
+            self.assertGreaterEqual(r["top"]["p"], r["pick"]["p"])  # le pari le plus probable l'est au moins autant que le 1N2
+        self.assertEqual(sum(b["n"] for b in got["stats"]["bands"]), len(rows))
+        self.assertEqual([r["date"] for r in rows], sorted((r["date"] for r in rows), reverse=True))  # du plus récent au plus ancien
 
     def test_european_strength(self):
         strong, weak = europe.strength("Arsenal", "Premier League", (1.2, 0.8)), europe.strength("Inconnu FC", None, None)
