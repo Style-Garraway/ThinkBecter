@@ -5,14 +5,15 @@
 2. The Odds API (clé facultative) : coupes d'Europe et cotes Betclic ;
 3. API-Football (clé facultative) : joueurs forfaits, et numéros des matchs du jour pour réclamer les compositions ;
 4. Fantasy Premier League et ESPN (sans clé) : joueurs, pour les buteurs et passeurs probables ;
-5. journal de preuve : les pronostics du moment sont enregistrés.
+5. ESPN (sans clé) : résultats passés de la Ligue des Champions, pour l'historique ;
+6. journal de preuve : les pronostics du moment sont enregistrés.
 """
 from datetime import datetime, timedelta
 
 from . import track
 from .database import db
 from .engine import pipeline
-from .ingest import apifootball, fixturedownload, footballdata, injuries, lineups, odds_api, scorers
+from .ingest import apifootball, champions, fixturedownload, footballdata, injuries, lineups, odds_api, scorers
 from .ingest.names import best_match, display
 
 FMT = "%Y-%m-%dT%H:%M"
@@ -60,7 +61,7 @@ def sync_calendar(conn, model, now, fetch=footballdata.download):
 
 
 def run(conn, model, now=None, fetch=footballdata.download, odds_fetcher=odds_api.fetch, injuries_fetcher=injuries.fetch,
-        fixtures_fetcher=lineups.fetch_fixtures, players_fetcher=scorers.fetch_all):
+        fixtures_fetcher=lineups.fetch_fixtures, players_fetcher=scorers.fetch_all, champions_fetcher=champions.fetch_day):
     """Met à jour `model` (dictionnaire partagé avec le serveur) et la base. Renvoie le compte rendu, aussi enregistré
     dans les réglages (clé « status ») pour que l'écran dise de quand datent les données. Lève RuntimeError sans aucune donnée."""
     now = now or datetime.now()
@@ -86,6 +87,8 @@ def run(conn, model, now=None, fetch=footballdata.download, odds_fetcher=odds_ap
     p = scorers.sync(conn, now, players_fetcher)  # sans clé : buteurs et passeurs probables
     warnings += p["errors"]
     status["players"] = p["players"]
+    c = champions.sync(conn, now, champions_fetcher)  # sans clé : résultats passés de la Ligue des Champions, pour l'historique
+    warnings += c["errors"]
     status["logged"] = track.log_predictions(conn, pipeline.upcoming(conn, model, now), now)
     status["warnings"] = list(dict.fromkeys(warnings))  # sans doublons, dans l'ordre
     db.put(conn, "status", status)
