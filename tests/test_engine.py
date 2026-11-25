@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 
 from src import history, refresh, track
+from src.ingest import champions
 from src.database import db
 from src.engine import europe, montecarlo, pipeline, ratings
 from src.engine.dixon_coles import outcome_probs, over_prob, score_matrices
@@ -223,7 +224,7 @@ class App(unittest.TestCase):
 
     def run_refresh(self, now=NOW, **kw):
         # Par défaut aucune source à clé n'est joignable : un test qui en a besoin doit fournir la sienne.
-        for name, default in (("odds_fetcher", forbidden), ("injuries_fetcher", forbidden), ("fixtures_fetcher", EMPTY), ("players_fetcher", lambda now: ({}, []))):
+        for name, default in (("odds_fetcher", forbidden), ("injuries_fetcher", forbidden), ("fixtures_fetcher", EMPTY), ("players_fetcher", lambda now: ({}, [])), ("champions_fetcher", lambda day: [])):
             kw.setdefault(name, default)
         return refresh.run(self.conn, self.model, now=now, fetch=self.fd, **kw)
 
@@ -270,7 +271,7 @@ class App(unittest.TestCase):
 
         def down(url):
             raise OSError("panne")
-        status = refresh.run(self.conn, self.model, now=NOW + timedelta(hours=1), fetch=down, players_fetcher=lambda now: ({}, []))
+        status = refresh.run(self.conn, self.model, now=NOW + timedelta(hours=1), fetch=down, players_fetcher=lambda now: ({}, []), champions_fetcher=lambda day: [])
         self.assertEqual(len(status["warnings"]), 3)  # données et les deux calendriers non mis à jour : dit à l'écran, sans planter
         self.assertEqual(len(pipeline.upcoming(self.conn, self.model, NOW)), 3)
 
@@ -425,6 +426,33 @@ class App(unittest.TestCase):
         m = pipeline.upcoming(self.conn, self.model, NOW)[0]
         self.assertAlmostEqual(sum(m["more"]["btts"].values()), 1)
         self.assertEqual(m["more"]["ou"].keys(), {"1.5", "2.5", "3.5"})
+
+    def test_champions_results_are_read_once_and_feed_the_history(self):
+        asked = []
+        match = lambda d: [{"date": "x", "home": "Arsenal", "away": "Club Inconnu", "hg": 2, "ag": 0}]
+
+        def fetch(day):
+            asked.append(day)
+            return match(day)
+        now = datetime(2026, 9, 17, 12, 0)  # jeudi : mardi 8 et mercredi 9, jeudi 10 ; mardi 15, mercredi 16 (la veille)
+        out = champions.sync(self.conn, now, fetch)
+        self.assertEqual(out, {"matches": len(asked), "errors": []})
+        self.assertTrue(all(datetime.strptime(a, "%Y%m%d").weekday() in (1, 2, 3) for a in asked))  # seulement mardi, mercredi, jeudi
+        first = len(asked)
+        champions.sync(self.conn, now, fetch)
+        self.assertLessEqual(len(asked) - first, 2)  # les jours déjà lus ne sont pas redemandés (sauf les 2 derniers)
+
+        def down(day):
+            raise OSError("hors ligne")
+        self.assertEqual(champions.sync(self.conn, now, down)["errors"], ["Résultats de la Ligue des Champions indisponibles pour le moment."])
+        self.assertTrue(champions.stored(self.conn))  # ce qui était lu reste
+        self.run_refresh()
+        got = history.get(self.model, champions.stored(self.conn), min_seen=1)
+        cl = [r for r in got["rows"] if r["competition"] == "Ligue des Champions"]
+        self.assertTrue(cl and all(r["fitted"] for r in cl))
+        self.assertTrue(all(r["score"] == "2-0" for r in cl))
+        self.assertTrue(all(not r["fitted"] for r in got["rows"] if r["competition"] != "Ligue des Champions"))
+        self.assertEqual(got["stats"]["n"], len(got["rows"]) - len(cl))  # le bilan officiel ne compte pas la C1
 
     def test_history_marks_each_past_bet_won_or_lost(self):
         self.run_refresh()
