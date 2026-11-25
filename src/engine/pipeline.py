@@ -6,7 +6,7 @@ from ..database import db
 from ..ingest import crests, footballdata, lineups, scorers
 from . import europe, ratings
 from .dixon_coles import score_matrices
-from .montecarlo import markets, simulate
+from .montecarlo import extras, markets, simulate
 
 FMT = "%Y-%m-%dT%H:%M"
 MIN_SEEN = 5  # une équipe vue moins de 5 fois (promu en début de saison) : pronostic marqué « * »
@@ -78,13 +78,14 @@ def verdict(conn, model, m, ctx=None):
     lh, la, estimated = expected_goals(model, m)
     # Graine tirée du match lui-même : tous les utilisateurs voient les mêmes chiffres.
     seed = zlib.crc32(f"{m['home']}|{m['away']}|{m['kickoff'][:10]}".encode())
-    mk = markets(*simulate(score_matrices(lh, la)[0], seed=seed))
+    sims = simulate(score_matrices(lh, la)[0], seed=seed)
+    mk = markets(*sims)
     sel, p = max(mk["1X2"].items(), key=lambda kv: kv[1])
     market, tsel, tp = max(((k, s, v) for k, sels in mk.items() for s, v in sels.items()), key=lambda t: t[2])
     odds = {r["selection"]: r["odds"] for r in conn.execute("SELECT selection, odds FROM odds WHERE match_id = ?", (m["id"],))}
     return {
         "id": m["id"], "kickoff": m["kickoff"], "competition": m["competition"], "home": m["home"], "away": m["away"],
-        "estimated": estimated, "probs": mk["1X2"],
+        "estimated": estimated, "probs": mk["1X2"], "more": {**extras(*sims), "ou": {k[2:]: v["Over"] for k, v in mk.items() if k.startswith("OU")}},
         "pick": {"label": {"H": f"{m['home']} gagne", "D": "Match nul", "A": f"{m['away']} gagne"}[sel], "p": p, "fair_odds": 1 / p},
         "top": {"label": label(market, tsel, m["home"], m["away"]), "p": tp, "fair_odds": 1 / tp, "market": market, "sel": tsel},
         "odds": odds if len(odds) == 3 else {}, "absent": absent(conn, m),
