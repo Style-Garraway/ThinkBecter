@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from .. import history, refresh, track
 from ..database import db
 from ..engine import pipeline
-from ..ingest import apifootball, crests, lineups
+from ..ingest import apifootball, champions, crests, lineups
 from . import clipboard
 
 STATIC = Path(__file__).resolve().parents[1] / "ui" / "static"
@@ -102,7 +102,7 @@ def get_history():
     with lock:
         if not MODEL:
             raise HTTPException(404, "Pas encore de données : clique sur « Actualiser ».")
-        return history.get(MODEL)
+        return history.get(MODEL, champions.stored(conn))
 
 
 @app.get("/api/track")
