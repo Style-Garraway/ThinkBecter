@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from .. import refresh, track
+from .. import history, refresh, track
 from ..database import db
 from ..engine import pipeline
 from ..ingest import apifootball, crests, lineups
@@ -95,6 +95,14 @@ def copy_bet(match_id: int):
     except OSError as e:
         raise HTTPException(500, str(e))
     return {"text": text}
+
+
+@app.get("/api/history")
+def get_history():
+    with lock:
+        if not MODEL:
+            raise HTTPException(404, "Pas encore de données : clique sur « Actualiser ».")
+        return history.get(MODEL)
 
 
 @app.get("/api/track")
